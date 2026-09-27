@@ -248,11 +248,18 @@ function nextUnfinishedIndex() {
 
 function bindViewerInteractions() {
   let pointer = null;
+  let spacePressed = false;
+  const refreshPanCursor = () => {
+    elements.viewport.classList.toggle("pan-ready", spacePressed);
+  };
   elements.viewport.addEventListener("wheel", (event) => {
     event.preventDefault();
     zoom(event.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
   elements.viewport.addEventListener("pointerdown", (event) => {
+    const wantsPan = event.pointerType === "touch" || event.button === 1 || (event.button === 0 && spacePressed);
+    if (!wantsPan) return;
+    event.preventDefault();
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
     elements.viewport.setPointerCapture(event.pointerId);
     elements.viewport.classList.add("dragging");
@@ -271,6 +278,22 @@ function bindViewerInteractions() {
   };
   elements.viewport.addEventListener("pointerup", endDrag);
   elements.viewport.addEventListener("pointercancel", endDrag);
+  window.addEventListener("keydown", (event) => {
+    if (event.code !== "Space" || event.target.matches("textarea, input, button")) return;
+    spacePressed = true;
+    event.preventDefault();
+    refreshPanCursor();
+  });
+  window.addEventListener("keyup", (event) => {
+    if (event.code !== "Space") return;
+    spacePressed = false;
+    refreshPanCursor();
+  });
+  window.addEventListener("blur", () => {
+    spacePressed = false;
+    refreshPanCursor();
+    endDrag();
+  });
 }
 
 function bindControls() {

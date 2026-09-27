@@ -109,8 +109,9 @@ h2 { font-size: 17px; }
   will-change: transform;
 }
 
+.image-viewport { cursor: default; }
+.image-viewport.pan-ready { cursor: grab; }
 .image-viewport.dragging { cursor: grabbing; }
-.image-viewport:not(.dragging) { cursor: grab; }
 .missing-image { position: absolute; padding: 12px 16px; border: 1px solid #914942; border-radius: 7px; background: #3c2525; color: #ffc0b8; }
 
 .annotation-panel { overflow: auto; padding: 18px; }
