@@ -1,0 +1,10 @@
+label,description,multi_selectable,exclusive,allowed_with
+clear,待判像元无可辨识云、薄云或阴影污染,true,false,cloud_shadow
+thin_cloud,半透明云且地表纹理仍可见,true,false,thick_cloud|haze_cirrus
+thick_cloud,高反射且明显不透明的云体,true,false,thin_cloud
+cloud_shadow,具备可信云—影几何关系的暗像元,true,false,clear|terrain_water_shadow
+terrain_water_shadow,更可由地形、水体或局部照明解释的暗像元,true,false,cloud_shadow
+haze_cirrus,弥散雾霾或高层卷云证据存在,true,false,thin_cloud
+boundary_mixed,一像素级边界或配准/混合像元,false,true,
+unobservable_nodata,所有可用证据均无有效信息,false,true,
+uncertain,证据有效但无法约束为两个具体语义类别,false,true,

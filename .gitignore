@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.annotation_history/
+.annotation-*.tmp
+
+# Reviewer packets are local working data, not source code.
+/panels/
+/reviewer_*.csv
+/calibration_consensus.csv
+/PHASE61D2_REVIEW_MANUAL.md
