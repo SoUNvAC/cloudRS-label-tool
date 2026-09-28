@@ -2,6 +2,7 @@ const state = {
   mode: "annotation",
   reviewerANamed: "Reviewer A",
   reviewerBNamed: "Reviewer B",
+  onlyDisagreements: false,
   tiles: [],
   labels: [],
   currentIndex: 0,
@@ -20,6 +21,9 @@ const elements = {
   position: document.querySelector("#position"),
   tileId: document.querySelector("#tile-id"),
   completionSummary: document.querySelector("#completion-summary"),
+  agreementQueueControls: document.querySelector("#agreement-queue-controls"),
+  skipAgreements: document.querySelector("#skip-agreements-toggle"),
+  agreementQueueHint: document.querySelector("#agreement-queue-hint"),
   reviewerComparison: document.querySelector("#reviewer-comparison"),
   reviewerAgreement: document.querySelector("#reviewer-agreement"),
   reviewerAName: document.querySelector("#reviewer-a-name"),
@@ -66,12 +70,23 @@ function isComplete(tile) {
   return Boolean(tile.label_set.trim());
 }
 
+function visibleTileIndexes() {
+  return state.tiles
+    .map((tile, index) => ({ tile, index }))
+    .filter(({ tile }) => !state.onlyDisagreements || !tile.reviewer_agreement_label_set)
+    .map(({ index }) => index);
+}
+
 function renderSummary() {
   const completed = state.tiles.filter(isComplete).length;
+  const visible = visibleTileIndexes();
+  const visiblePosition = visible.indexOf(state.currentIndex);
   elements.completionSummary.textContent = `已标注 ${completed} / ${state.tiles.length}`;
-  elements.position.textContent = `${state.currentIndex + 1} / ${state.tiles.length}`;
-  elements.previous.disabled = state.currentIndex === 0;
-  elements.next.disabled = state.currentIndex === state.tiles.length - 1;
+  elements.position.textContent = state.onlyDisagreements
+    ? `${Math.max(visiblePosition + 1, 0)} / ${visible.length} 待裁决`
+    : `${state.currentIndex + 1} / ${state.tiles.length}`;
+  elements.previous.disabled = visiblePosition <= 0;
+  elements.next.disabled = visiblePosition < 0 || visiblePosition === visible.length - 1;
 }
 
 function displayReviewerValue(value, fallback = "（未填写）") {
@@ -89,6 +104,7 @@ function reviewerLabelsMatch(reviewerA, reviewerB) {
 function renderReviewerComparison(tile, autoApplied = false) {
   const isMerge = state.mode === "merge";
   elements.reviewerComparison.hidden = !isMerge;
+  elements.agreementQueueControls.hidden = !isMerge;
   elements.labelHeading.textContent = isMerge ? "最终共识 label_set" : "label_set";
   elements.labelSubtitle.textContent = isMerge ? "评审团裁决；只会写入最终共识文件" : "当前图的标签与备注";
   elements.notesHeading.textContent = isMerge ? "rule_or_counterexample" : "notes";
@@ -103,12 +119,16 @@ function renderReviewerComparison(tile, autoApplied = false) {
   elements.reviewerBLabel.textContent = displayReviewerValue(reviewerB.label_set);
   elements.reviewerANotes.textContent = displayReviewerValue(reviewerA.notes, "（无 notes）");
   elements.reviewerBNotes.textContent = displayReviewerValue(reviewerB.notes, "（无 notes）");
-  const agreed = reviewerLabelsMatch(reviewerA.label_set, reviewerB.label_set);
+  const agreed = Boolean(tile.reviewer_agreement_label_set);
+  const rawAgreement = reviewerLabelsMatch(reviewerA.label_set, reviewerB.label_set);
   if (agreed) {
     elements.reviewerAgreement.textContent = autoApplied
       ? "A / B 的 label_set 一致，已自动带入最终标签"
       : "A / B 的 label_set 一致";
     elements.reviewerAgreement.className = "muted reviewer-match";
+  } else if (rawAgreement) {
+    elements.reviewerAgreement.textContent = "A / B 标签相同，但当前 label_set 配置不允许自动合并";
+    elements.reviewerAgreement.className = "muted reviewer-mismatch";
   } else if (!reviewerA.label_set.trim() && !reviewerB.label_set.trim()) {
     elements.reviewerAgreement.textContent = "A / B 均未填写 label_set";
     elements.reviewerAgreement.className = "muted";
@@ -139,13 +159,9 @@ function selectedFromLabelSet(value) {
 
 function autoApplyMatchingReviewerLabels(tile) {
   if (state.mode !== "merge" || tile.label_set.trim()) return false;
-  const reviewerA = tile.reviewer_a;
-  const reviewerB = tile.reviewer_b;
-  const aValue = reviewerA.label_set.trim();
-  const bValue = reviewerB.label_set.trim();
-  if (!reviewerLabelsMatch(aValue, bValue)) return false;
-
-  const proposed = selectedFromLabelSet(aValue);
+  const agreement = tile.reviewer_agreement_label_set || "";
+  if (!agreement) return false;
+  const proposed = selectedFromLabelSet(agreement);
   const configured = labelMap();
   if (!proposed.length || proposed.some((label) => !configured.has(label))) return false;
   if (proposed.length > 1 && !pairsAreAllowed(proposed[0], proposed[1])) return false;
@@ -231,7 +247,21 @@ function chooseLabel(label, checked) {
 }
 
 function renderTile() {
+  const visible = visibleTileIndexes();
+  if (state.onlyDisagreements && !visible.includes(state.currentIndex)) {
+    state.currentIndex = visible[0] ?? -1;
+  }
   const tile = currentTile();
+  if (!tile) {
+    elements.image.removeAttribute("src");
+    elements.image.hidden = true;
+    elements.missingImage.hidden = false;
+    elements.missingImage.textContent = "没有需要人工裁决的条目。";
+    elements.tileId.textContent = "—";
+    elements.notes.value = "";
+    renderSummary();
+    return;
+  }
   state.selectedLabels = selectedFromLabelSet(tile.label_set);
   state.multiEnabled = state.selectedLabels.length > 1;
   const autoApplied = autoApplyMatchingReviewerLabels(tile);
@@ -269,6 +299,7 @@ async function postSave(snapshot) {
 
 function saveCurrent(reason = "manual") {
   const tile = currentTile();
+  if (!tile) return Promise.resolve();
   const snapshot = {
     tile_id: tile.tile_id,
     labels: [...state.selectedLabels],
@@ -301,6 +332,54 @@ async function navigate(index) {
   }
 }
 
+function navigateVisible(offset) {
+  const visible = visibleTileIndexes();
+  const position = visible.indexOf(state.currentIndex);
+  const destination = visible[position + offset];
+  if (destination !== undefined) void navigate(destination);
+}
+
+function applyStatePayload(payload) {
+  state.tiles = payload.tiles;
+  state.labels = payload.labels;
+  state.mode = payload.mode || "annotation";
+  state.reviewerANamed = payload.reviewer_a_name || "Reviewer A";
+  state.reviewerBNamed = payload.reviewer_b_name || "Reviewer B";
+  elements.csvName.textContent = state.mode === "merge" ? `合并输出：${payload.csv_name}` : payload.csv_name;
+}
+
+async function autoMergeAndFilter() {
+  const activeTileId = currentTile()?.tile_id;
+  elements.skipAgreements.disabled = true;
+  try {
+    await state.saveChain;
+    setStatus("正在合并 A/B 一致项…", "saving");
+    const response = await fetch("/api/auto-merge-agreements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "自动合并失败");
+    const stateResponse = await fetch("/api/state", { cache: "no-store" });
+    const payload = await stateResponse.json();
+    if (!stateResponse.ok) throw new Error(payload.error || "刷新合并队列失败");
+    applyStatePayload(payload);
+    state.onlyDisagreements = true;
+    const retainedIndex = state.tiles.findIndex((tile) => tile.tile_id === activeTileId);
+    state.currentIndex = retainedIndex >= 0 ? retainedIndex : 0;
+    renderTile();
+    elements.agreementQueueHint.textContent = `已自动写入 ${result.saved} 条；${result.already_final} 条已有最终裁决。当前仅显示 ${result.manual} 条待裁决项。`;
+    setStatus("A/B 一致项已合并，正在查看待裁决队列", "saved");
+  } catch (error) {
+    state.onlyDisagreements = false;
+    elements.skipAgreements.checked = false;
+    setStatus(`自动合并失败：${error.message}`, "error");
+  } finally {
+    elements.skipAgreements.disabled = false;
+  }
+}
+
 async function reloadLabels() {
   elements.reloadLabels.disabled = true;
   try {
@@ -318,8 +397,10 @@ async function reloadLabels() {
 }
 
 function nextUnfinishedIndex() {
-  for (let offset = 1; offset <= state.tiles.length; offset += 1) {
-    const index = (state.currentIndex + offset) % state.tiles.length;
+  const visible = visibleTileIndexes();
+  const startPosition = visible.indexOf(state.currentIndex);
+  for (let offset = 1; offset <= visible.length; offset += 1) {
+    const index = visible[(startPosition + offset) % visible.length];
     if (!isComplete(state.tiles[index])) return index;
   }
   return -1;
@@ -376,8 +457,8 @@ function bindViewerInteractions() {
 }
 
 function bindControls() {
-  elements.previous.addEventListener("click", () => navigate(state.currentIndex - 1));
-  elements.next.addEventListener("click", () => navigate(state.currentIndex + 1));
+  elements.previous.addEventListener("click", () => navigateVisible(-1));
+  elements.next.addEventListener("click", () => navigateVisible(1));
   elements.zoomIn.addEventListener("click", () => zoom(1.25));
   elements.zoomOut.addEventListener("click", () => zoom(1 / 1.25));
   elements.fit.addEventListener("click", resetToFit);
@@ -430,16 +511,26 @@ function bindControls() {
     }
   });
   elements.reloadLabels.addEventListener("click", reloadLabels);
+  elements.skipAgreements.addEventListener("change", () => {
+    if (elements.skipAgreements.checked) {
+      void autoMergeAndFilter();
+    } else {
+      state.onlyDisagreements = false;
+      elements.agreementQueueHint.textContent = "勾选后会将空的最终共识行批量填入 A/B 一致标签；已有裁决不会覆盖。";
+      if (state.currentIndex < 0) state.currentIndex = 0;
+      renderTile();
+    }
+  });
   window.addEventListener("keydown", (event) => {
     if (event.target.matches("textarea, input")) return;
-    if (event.key === "ArrowLeft") { event.preventDefault(); navigate(state.currentIndex - 1); }
-    if (event.key === "ArrowRight") { event.preventDefault(); navigate(state.currentIndex + 1); }
+    if (event.key === "ArrowLeft") { event.preventDefault(); navigateVisible(-1); }
+    if (event.key === "ArrowRight") { event.preventDefault(); navigateVisible(1); }
     if (event.key === "+" || event.key === "=") { event.preventDefault(); zoom(1.25); }
     if (event.key === "-") { event.preventDefault(); zoom(1 / 1.25); }
     if (event.key.toLowerCase() === "f") { event.preventDefault(); resetToFit(); }
   });
   window.addEventListener("beforeunload", () => {
-    if (state.tiles.length) void saveCurrent("page_unload");
+    if (currentTile()) void saveCurrent("page_unload");
   });
 }
 
@@ -448,12 +539,7 @@ async function initialize() {
     const response = await fetch("/api/state", { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "读取数据失败");
-    state.tiles = payload.tiles;
-    state.labels = payload.labels;
-    state.mode = payload.mode || "annotation";
-    state.reviewerANamed = payload.reviewer_a_name || "Reviewer A";
-    state.reviewerBNamed = payload.reviewer_b_name || "Reviewer B";
-    elements.csvName.textContent = state.mode === "merge" ? `合并输出：${payload.csv_name}` : payload.csv_name;
+    applyStatePayload(payload);
     const savedIndex = Number.parseInt(sessionStorage.getItem(`cloudrs-index:${payload.csv_name}`), 10);
     if (Number.isInteger(savedIndex) && savedIndex >= 0 && savedIndex < state.tiles.length) state.currentIndex = savedIndex;
     renderTile();

@@ -32,6 +32,7 @@ python app.py --merge --reviewer-a reviewer_A_calibration.csv --reviewer-b revie
 - 只会更新 `calibration_consensus.csv`，两份 reviewer CSV 在合并模式下绝不会被写入。
 - 两份 reviewer CSV 与 consensus CSV 的 `tile_id`、行数和顺序必须完全一致；不一致时工具拒绝启动或保存，避免错误合并。
 - 每次加载当前图片时，若 A/B 的非空标签集合一致且最终共识仍为空，会自动勾选并保存该标签；已有最终共识绝不自动覆盖。
+- 勾选“自动合并 A/B 一致项，只看待裁决项”后，会一次性填入所有可安全自动合并的空共识行，并将浏览、上一张/下一张和“下一张未完成”限制在 A/B 不一致的人工队列。取消勾选只恢复查看全部，不会回滚已写入的共识。
 - 最终共识沿用原有自动保存、切图前强制保存、原子替换、快照和审计日志机制。
 
 ## 标注与保存

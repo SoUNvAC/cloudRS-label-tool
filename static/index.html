@@ -41,6 +41,13 @@
       </section>
 
       <aside class="annotation-panel" aria-label="标注面板">
+        <section id="agreement-queue-controls" class="agreement-queue-controls" hidden>
+          <label class="toggle-row" for="skip-agreements-toggle">
+            <input id="skip-agreements-toggle" type="checkbox" />
+            <span>自动合并 A/B 一致项，只看待裁决项</span>
+          </label>
+          <p id="agreement-queue-hint" class="hint">勾选后会将空的最终共识行批量填入 A/B 一致标签；已有裁决不会覆盖。</p>
+        </section>
         <section id="reviewer-comparison" class="reviewer-comparison" hidden aria-label="独立评审结果">
           <div class="comparison-heading">
             <div>

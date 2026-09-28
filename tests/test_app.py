@@ -106,6 +106,30 @@ class AnnotationStoreTests(unittest.TestCase):
                 "label_set.csv",
             )
 
+    def test_auto_merge_agreements_writes_only_blank_consensus_rows(self):
+        self.create_merge_files()
+        (self.root / "calibration_consensus.csv").write_text(
+            "tile_id,agreed_label_set,rule_or_counterexample\ntile-1,,,\ntile-2,,,\n",
+            encoding="utf-8",
+        )
+        store = MergeStore(
+            self.root,
+            "reviewer_A_calibration.csv",
+            "reviewer_B_calibration.csv",
+            "calibration_consensus.csv",
+            "label_set.csv",
+        )
+        result = store.auto_merge_agreements()
+        self.assertEqual({"matched": 1, "saved": 1, "already_final": 0, "manual": 1}, result)
+        with (self.root / "calibration_consensus.csv").open(encoding="utf-8", newline="") as handle:
+            consensus = list(csv.DictReader(handle))
+        self.assertEqual("", consensus[0]["agreed_label_set"])
+        self.assertEqual("clear", consensus[1]["agreed_label_set"])
+        self.assertIn("haze_cirrus", (self.root / "reviewer_B_calibration.csv").read_text(encoding="utf-8"))
+
+        rerun = store.auto_merge_agreements()
+        self.assertEqual({"matched": 1, "saved": 0, "already_final": 1, "manual": 1}, rerun)
+
 
 if __name__ == "__main__":
     unittest.main()

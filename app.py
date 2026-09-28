@@ -378,11 +378,27 @@ class MergeStore(AnnotationStore):
     def _validate_merge_layout(self) -> None:
         self._merge_rows()
 
+    def _agreement_label_set(self, reviewer_a_label_set: str, reviewer_b_label_set: str) -> str:
+        """Return a validated, canonical shared label set, otherwise an empty string."""
+        if not reviewer_a_label_set.strip() or not reviewer_b_label_set.strip():
+            return ""
+        try:
+            reviewer_a = self.normalize_labels(reviewer_a_label_set.split("|"))
+            reviewer_b = self.normalize_labels(reviewer_b_label_set.split("|"))
+        except UserFacingError:
+            # Historical or malformed reviewer values need a human decision rather
+            # than being silently copied into the final delivery file.
+            return ""
+        return reviewer_a if reviewer_a and reviewer_a == reviewer_b else ""
+
     def state(self) -> dict[str, Any]:
         reviewer_a_rows, reviewer_b_rows, consensus_rows = self._merge_rows()
         tiles = []
         for reviewer_a, reviewer_b, consensus in zip(reviewer_a_rows, reviewer_b_rows, consensus_rows, strict=True):
             tile_id = consensus["tile_id"].strip()
+            agreement = self._agreement_label_set(
+                reviewer_a.get("label_set", ""), reviewer_b.get("label_set", "")
+            )
             tiles.append(
                 {
                     "tile_id": tile_id,
@@ -397,6 +413,7 @@ class MergeStore(AnnotationStore):
                         "label_set": reviewer_b.get("label_set", ""),
                         "notes": reviewer_b.get("notes", ""),
                     },
+                    "reviewer_agreement_label_set": agreement,
                 }
             )
         return {
@@ -413,6 +430,58 @@ class MergeStore(AnnotationStore):
         # cannot silently be merged into a mismatched consensus file.
         self._validate_merge_layout()
         return super().save(tile_id, labels, notes, reason)
+
+    def auto_merge_agreements(self) -> dict[str, int]:
+        """Copy safe A/B agreements into otherwise blank consensus rows in one transaction."""
+        with self._write_lock:
+            reviewer_a_rows, reviewer_b_rows, consensus_rows = self._merge_rows()
+            consensus_fields, _ = self._read_csv(self.csv_path)
+            matched = 0
+            saved = 0
+            already_final = 0
+            manual = 0
+            for reviewer_a, reviewer_b, consensus in zip(reviewer_a_rows, reviewer_b_rows, consensus_rows, strict=True):
+                agreement = self._agreement_label_set(
+                    reviewer_a.get("label_set", ""), reviewer_b.get("label_set", "")
+                )
+                if not agreement:
+                    manual += 1
+                    continue
+                matched += 1
+                if consensus.get(self.label_column, "").strip():
+                    already_final += 1
+                    continue
+                consensus[self.label_column] = agreement
+                saved += 1
+
+            if saved:
+                self._backup_original()
+                self._write_rows_atomically(consensus_fields, consensus_rows)
+                self._append_auto_merge_audit(matched, saved, already_final, manual)
+
+        return {
+            "matched": matched,
+            "saved": saved,
+            "already_final": already_final,
+            "manual": manual,
+        }
+
+    def _append_auto_merge_audit(self, matched: int, saved: int, already_final: int, manual: int) -> None:
+        self.backup_dir.mkdir(exist_ok=True)
+        record = {
+            "timestamp": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "csv": self.csv_path.name,
+            "mode": self.mode,
+            "reason": "auto_reviewer_agreement",
+            "matched": matched,
+            "saved": saved,
+            "already_final": already_final,
+            "manual": manual,
+        }
+        with self.audit_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
 
 
 class AppHandler(BaseHTTPRequestHandler):
@@ -459,7 +528,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = unquote(urlparse(self.path).path)
-        if path != "/api/save":
+        if path not in {"/api/save", "/api/auto-merge-agreements"}:
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "接口不存在"})
             return
         try:
@@ -469,9 +538,14 @@ class AppHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
             if not isinstance(payload, dict):
                 raise UserFacingError("请求必须是 JSON 对象")
-            result = self.store.save(
-                payload.get("tile_id"), payload.get("labels"), payload.get("notes"), payload.get("reason", "manual")
-            )
+            if path == "/api/auto-merge-agreements":
+                if not isinstance(self.store, MergeStore):
+                    raise UserFacingError("只有合并模式可以自动写入 A/B 一致项")
+                result = self.store.auto_merge_agreements()
+            else:
+                result = self.store.save(
+                    payload.get("tile_id"), payload.get("labels"), payload.get("notes"), payload.get("reason", "manual")
+                )
             self._send_json(HTTPStatus.OK, result)
         except json.JSONDecodeError:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "请求不是有效 JSON"})
