@@ -78,7 +78,15 @@ function displayReviewerValue(value, fallback = "（未填写）") {
   return value.trim() || fallback;
 }
 
-function renderReviewerComparison(tile) {
+function normalizedLabelSet(value) {
+  return [...new Set(selectedFromLabelSet(value))].sort().join("|");
+}
+
+function reviewerLabelsMatch(reviewerA, reviewerB) {
+  return Boolean(reviewerA.trim()) && normalizedLabelSet(reviewerA) === normalizedLabelSet(reviewerB);
+}
+
+function renderReviewerComparison(tile, autoApplied = false) {
   const isMerge = state.mode === "merge";
   elements.reviewerComparison.hidden = !isMerge;
   elements.labelHeading.textContent = isMerge ? "最终共识 label_set" : "label_set";
@@ -95,9 +103,19 @@ function renderReviewerComparison(tile) {
   elements.reviewerBLabel.textContent = displayReviewerValue(reviewerB.label_set);
   elements.reviewerANotes.textContent = displayReviewerValue(reviewerA.notes, "（无 notes）");
   elements.reviewerBNotes.textContent = displayReviewerValue(reviewerB.notes, "（无 notes）");
-  const agreed = reviewerA.label_set.trim() === reviewerB.label_set.trim();
-  elements.reviewerAgreement.textContent = agreed ? "A / B 的 label_set 一致" : "A / B 的 label_set 不一致，需要裁决";
-  elements.reviewerAgreement.className = agreed ? "muted reviewer-match" : "muted reviewer-mismatch";
+  const agreed = reviewerLabelsMatch(reviewerA.label_set, reviewerB.label_set);
+  if (agreed) {
+    elements.reviewerAgreement.textContent = autoApplied
+      ? "A / B 的 label_set 一致，已自动带入最终标签"
+      : "A / B 的 label_set 一致";
+    elements.reviewerAgreement.className = "muted reviewer-match";
+  } else if (!reviewerA.label_set.trim() && !reviewerB.label_set.trim()) {
+    elements.reviewerAgreement.textContent = "A / B 均未填写 label_set";
+    elements.reviewerAgreement.className = "muted";
+  } else {
+    elements.reviewerAgreement.textContent = "A / B 的 label_set 不一致，需要裁决";
+    elements.reviewerAgreement.className = "muted reviewer-mismatch";
+  }
 }
 
 function renderTransform() {
@@ -117,6 +135,24 @@ function zoom(factor) {
 
 function selectedFromLabelSet(value) {
   return value.split("|").map((item) => item.trim()).filter(Boolean);
+}
+
+function autoApplyMatchingReviewerLabels(tile) {
+  if (state.mode !== "merge" || tile.label_set.trim()) return false;
+  const reviewerA = tile.reviewer_a;
+  const reviewerB = tile.reviewer_b;
+  const aValue = reviewerA.label_set.trim();
+  const bValue = reviewerB.label_set.trim();
+  if (!reviewerLabelsMatch(aValue, bValue)) return false;
+
+  const proposed = selectedFromLabelSet(aValue);
+  const configured = labelMap();
+  if (!proposed.length || proposed.some((label) => !configured.has(label))) return false;
+  if (proposed.length > 1 && !pairsAreAllowed(proposed[0], proposed[1])) return false;
+
+  state.selectedLabels = proposed;
+  state.multiEnabled = proposed.length > 1;
+  return true;
 }
 
 function showLabelWarning(message) {
@@ -198,6 +234,7 @@ function renderTile() {
   const tile = currentTile();
   state.selectedLabels = selectedFromLabelSet(tile.label_set);
   state.multiEnabled = state.selectedLabels.length > 1;
+  const autoApplied = autoApplyMatchingReviewerLabels(tile);
   elements.tileId.textContent = tile.tile_id;
   elements.notes.value = tile.notes;
   elements.image.src = `/api/image/${encodeURIComponent(tile.tile_id)}?v=${Date.now()}`;
@@ -205,9 +242,10 @@ function renderTile() {
   elements.missingImage.hidden = tile.has_image;
   elements.image.alt = `${tile.tile_id} 待标注图片`;
   resetToFit();
-  renderReviewerComparison(tile);
+  renderReviewerComparison(tile, autoApplied);
   renderLabels();
   renderSummary();
+  if (autoApplied) scheduleSave("auto_reviewer_agreement");
 }
 
 async function postSave(snapshot) {
