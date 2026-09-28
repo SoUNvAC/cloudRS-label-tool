@@ -35,6 +35,22 @@ python app.py --merge --reviewer-a reviewer_A_calibration.csv --reviewer-b revie
 - 勾选“自动合并 A/B 一致项，只看待裁决项”后，会一次性填入所有可安全自动合并的空共识行，并将浏览、上一张/下一张和“下一张未完成”限制在 A/B 不一致的人工队列。取消勾选只恢复查看全部，不会回滚已写入的共识。
 - 最终共识沿用原有自动保存、切图前强制保存、原子替换、快照和审计日志机制。
 
+## 单文件 A/B 合并裁决
+
+如果 A、B 结果与最终裁决都在同一份 CSV，使用：
+
+```powershell
+python app.py --merge-csv merge_adjudication.csv --open-browser
+```
+
+文件必须包含以下表头；可以保留其他列，工具不会删除它们：
+
+```csv
+tile_id,reviewer_A_label_set,reviewer_B_label_set,final_label_set,rationale
+```
+
+页面会读取两列 reviewer 标签，并且只编辑 `final_label_set` 与 `rationale`。PNG 始终按 `panels/<tile_id>.png` 定位，因此 CSV 中 `tile_id` 的编号可以跳跃、不连续，也不要求与目录中的全部图片一一覆盖。
+
 ## 标注与保存
 
 - 鼠标滚轮缩放；按住空格再左键拖动，或用鼠标中键拖动平移图片。工具栏也提供适应窗口和 100%。

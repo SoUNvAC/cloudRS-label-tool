@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app import AnnotationStore, MergeStore, UserFacingError
+from app import AnnotationStore, MergeStore, SingleFileMergeStore, UserFacingError
 
 
 LABELS = """label,description,multi_selectable,exclusive,allowed_with
@@ -129,6 +129,34 @@ class AnnotationStoreTests(unittest.TestCase):
 
         rerun = store.auto_merge_agreements()
         self.assertEqual({"matched": 1, "saved": 0, "already_final": 1, "manual": 1}, rerun)
+
+    def test_single_file_merge_uses_tile_id_for_non_sequential_png_names(self):
+        (self.root / "panels" / "tile-7.png").write_bytes(b"not-a-real-png")
+        (self.root / "single_merge.csv").write_text(
+            "tile_id,reviewer_A_label_set,reviewer_B_label_set,final_label_set,rationale,extra\n"
+            "tile-1,clear,clear,,,first\n"
+            "tile-7,thin_cloud,uncertain,,,jumped\n",
+            encoding="utf-8",
+        )
+        store = SingleFileMergeStore(self.root, "single_merge.csv", "label_set.csv")
+        state = store.state()
+        self.assertEqual("merge", state["mode"])
+        self.assertEqual("single_file", state["merge_layout"])
+        self.assertTrue(state["tiles"][0]["has_image"])
+        self.assertTrue(state["tiles"][1]["has_image"])
+        self.assertEqual("clear", state["tiles"][0]["reviewer_agreement_label_set"])
+        self.assertEqual("", state["tiles"][1]["reviewer_agreement_label_set"])
+
+        result = store.auto_merge_agreements()
+        self.assertEqual({"matched": 1, "saved": 1, "already_final": 0, "manual": 1}, result)
+        store.save("tile-7", ["thin_cloud"], "Panel decision", "manual")
+        with (self.root / "single_merge.csv").open(encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        self.assertEqual("clear", rows[0]["final_label_set"])
+        self.assertEqual("thin_cloud", rows[1]["final_label_set"])
+        self.assertEqual("Panel decision", rows[1]["rationale"])
+        self.assertEqual("uncertain", rows[1]["reviewer_B_label_set"])
+        self.assertEqual("jumped", rows[1]["extra"])
 
 
 if __name__ == "__main__":

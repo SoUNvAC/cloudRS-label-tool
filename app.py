@@ -28,6 +28,13 @@ from urllib.parse import unquote, urlparse
 
 REVIEWER_COLUMNS = ("tile_id", "label_set", "notes")
 CONSENSUS_COLUMNS = ("tile_id", "agreed_label_set", "rule_or_counterexample")
+SINGLE_FILE_MERGE_COLUMNS = (
+    "tile_id",
+    "reviewer_A_label_set",
+    "reviewer_B_label_set",
+    "final_label_set",
+    "rationale",
+)
 MAX_NOTES_LENGTH = 10_000
 
 
@@ -484,6 +491,128 @@ class MergeStore(AnnotationStore):
             os.fsync(handle.fileno())
 
 
+class SingleFileMergeStore(AnnotationStore):
+    """Merge adjudication where both reviewer results and final fields share one CSV."""
+
+    def __init__(self, data_dir: Path, csv_name: str, labels_name: str) -> None:
+        super().__init__(
+            data_dir,
+            csv_name,
+            labels_name,
+            label_column="final_label_set",
+            notes_column="rationale",
+            mode="merge",
+        )
+        self._validate_single_file_layout()
+
+    def _single_file_rows(self) -> tuple[list[str], list[dict[str, str]]]:
+        fieldnames, rows = self._read_csv(self.csv_path)
+        missing = set(SINGLE_FILE_MERGE_COLUMNS).difference(fieldnames)
+        if missing:
+            raise UserFacingError(f"{self.csv_path.name} 缺少单文件合并列：{', '.join(sorted(missing))}")
+        tile_ids = [row["tile_id"].strip() for row in rows]
+        if not rows or not all(tile_ids):
+            raise UserFacingError(f"{self.csv_path.name} 缺少有效的待裁决记录")
+        if len(tile_ids) != len(set(tile_ids)):
+            raise UserFacingError(f"{self.csv_path.name} 存在重复 tile_id")
+        return fieldnames, rows
+
+    def _validate_single_file_layout(self) -> None:
+        self._single_file_rows()
+
+    def _agreement_label_set(self, reviewer_a_label_set: str, reviewer_b_label_set: str) -> str:
+        if not reviewer_a_label_set.strip() or not reviewer_b_label_set.strip():
+            return ""
+        try:
+            reviewer_a = self.normalize_labels(reviewer_a_label_set.split("|"))
+            reviewer_b = self.normalize_labels(reviewer_b_label_set.split("|"))
+        except UserFacingError:
+            return ""
+        return reviewer_a if reviewer_a and reviewer_a == reviewer_b else ""
+
+    def state(self) -> dict[str, Any]:
+        _, rows = self._single_file_rows()
+        tiles = []
+        for row in rows:
+            tile_id = row["tile_id"].strip()
+            reviewer_a_label_set = row.get("reviewer_A_label_set", "")
+            reviewer_b_label_set = row.get("reviewer_B_label_set", "")
+            tiles.append(
+                {
+                    "tile_id": tile_id,
+                    "label_set": row.get(self.label_column, ""),
+                    "notes": row.get(self.notes_column, ""),
+                    "has_image": self.image_path(tile_id) is not None,
+                    "reviewer_a": {"label_set": reviewer_a_label_set, "notes": ""},
+                    "reviewer_b": {"label_set": reviewer_b_label_set, "notes": ""},
+                    "reviewer_agreement_label_set": self._agreement_label_set(
+                        reviewer_a_label_set, reviewer_b_label_set
+                    ),
+                }
+            )
+        return {
+            "mode": self.mode,
+            "merge_layout": "single_file",
+            "csv_name": self.csv_path.name,
+            "reviewer_a_name": "reviewer_A_label_set",
+            "reviewer_b_name": "reviewer_B_label_set",
+            "tiles": tiles,
+            "labels": [definition.as_json() for definition in self.read_labels()],
+        }
+
+    def save(self, tile_id: Any, labels: Any, notes: Any, reason: Any) -> dict[str, Any]:
+        self._validate_single_file_layout()
+        return super().save(tile_id, labels, notes, reason)
+
+    def auto_merge_agreements(self) -> dict[str, int]:
+        with self._write_lock:
+            fieldnames, rows = self._single_file_rows()
+            matched = 0
+            saved = 0
+            already_final = 0
+            manual = 0
+            for row in rows:
+                agreement = self._agreement_label_set(
+                    row.get("reviewer_A_label_set", ""), row.get("reviewer_B_label_set", "")
+                )
+                if not agreement:
+                    manual += 1
+                    continue
+                matched += 1
+                if row.get(self.label_column, "").strip():
+                    already_final += 1
+                    continue
+                row[self.label_column] = agreement
+                saved += 1
+            if saved:
+                self._backup_original()
+                self._write_rows_atomically(fieldnames, rows)
+                self._append_auto_merge_audit(matched, saved, already_final, manual)
+        return {
+            "matched": matched,
+            "saved": saved,
+            "already_final": already_final,
+            "manual": manual,
+        }
+
+    def _append_auto_merge_audit(self, matched: int, saved: int, already_final: int, manual: int) -> None:
+        self.backup_dir.mkdir(exist_ok=True)
+        record = {
+            "timestamp": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "csv": self.csv_path.name,
+            "mode": "single_file_merge",
+            "reason": "auto_reviewer_agreement",
+            "matched": matched,
+            "saved": saved,
+            "already_final": already_final,
+            "manual": manual,
+        }
+        with self.audit_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
 class AppHandler(BaseHTTPRequestHandler):
     store: AnnotationStore
     static_dir: Path
@@ -539,7 +668,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise UserFacingError("请求必须是 JSON 对象")
             if path == "/api/auto-merge-agreements":
-                if not isinstance(self.store, MergeStore):
+                if not isinstance(self.store, (MergeStore, SingleFileMergeStore)):
                     raise UserFacingError("只有合并模式可以自动写入 A/B 一致项")
                 result = self.store.auto_merge_agreements()
             else:
@@ -584,6 +713,7 @@ def parse_args() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--csv", help="要编辑的单一交付 CSV，例如 reviewer_A_main.csv")
     mode.add_argument("--merge", action="store_true", help="开启双 reviewer 的共识合并模式")
+    mode.add_argument("--merge-csv", help="开启单文件的 A/B 合并裁决模式")
     parser.add_argument("--reviewer-a", help="合并模式中 reviewer A 的 CSV")
     parser.add_argument("--reviewer-b", help="合并模式中 reviewer B 的 CSV")
     parser.add_argument("--consensus", help="合并模式写入的 calibration_consensus.csv")
@@ -614,6 +744,8 @@ def main() -> int:
             if missing:
                 raise UserFacingError(f"合并模式缺少参数：{', '.join(missing)}")
             store = MergeStore(args.data_dir, args.reviewer_a, args.reviewer_b, args.consensus, args.labels)
+        elif args.merge_csv:
+            store = SingleFileMergeStore(args.data_dir, args.merge_csv, args.labels)
         else:
             store = AnnotationStore(args.data_dir, args.csv, args.labels)
     except UserFacingError as error:
@@ -630,6 +762,8 @@ def main() -> int:
     if isinstance(store, MergeStore):
         print(f"合并评审：{store.reviewer_a_path.name} + {store.reviewer_b_path.name}")
         print(f"最终写入：{store.csv_path.name}")
+    elif isinstance(store, SingleFileMergeStore):
+        print(f"单文件合并评审：{store.csv_path.name}")
     else:
         print(f"正在编辑：{store.csv_path.name}")
     print(f"打开浏览器：{url}")
