@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app import AnnotationStore, UserFacingError
+from app import AnnotationStore, MergeStore, UserFacingError
 
 
 LABELS = """label,description,multi_selectable,exclusive,allowed_with
@@ -54,6 +54,57 @@ class AnnotationStoreTests(unittest.TestCase):
         state = self.store.state()
         self.assertTrue(state["tiles"][0]["has_image"])
         self.assertFalse(state["tiles"][1]["has_image"])
+
+    def create_merge_files(self, reviewer_b_tile_order="tile-1,tile-2"):
+        (self.root / "reviewer_A_calibration.csv").write_text(
+            "tile_id,label_set,notes\ntile-1,thin_cloud,A thinks thin\ntile-2,clear,A is clear\n",
+            encoding="utf-8",
+        )
+        reviewer_b_rows = {
+            "tile-1": "tile-1,haze_cirrus,B sees haze\n",
+            "tile-2": "tile-2,clear,B is clear\n",
+        }
+        reviewer_b_content = "tile_id,label_set,notes\n" + "".join(
+            reviewer_b_rows[tile_id] for tile_id in reviewer_b_tile_order.split(",")
+        )
+        (self.root / "reviewer_B_calibration.csv").write_text(reviewer_b_content, encoding="utf-8")
+        (self.root / "calibration_consensus.csv").write_text(
+            "tile_id,agreed_label_set,rule_or_counterexample,extra\ntile-1,,,kept\ntile-2,clear,existing,also-kept\n",
+            encoding="utf-8",
+        )
+
+    def test_merge_state_shows_both_reviewers_and_writes_only_consensus(self):
+        self.create_merge_files()
+        store = MergeStore(
+            self.root,
+            "reviewer_A_calibration.csv",
+            "reviewer_B_calibration.csv",
+            "calibration_consensus.csv",
+            "label_set.csv",
+        )
+        state = store.state()
+        self.assertEqual("merge", state["mode"])
+        self.assertEqual("thin_cloud", state["tiles"][0]["reviewer_a"]["label_set"])
+        self.assertEqual("haze_cirrus", state["tiles"][0]["reviewer_b"]["label_set"])
+        result = store.save("tile-1", ["thin_cloud"], "Panel decision", "manual")
+        self.assertEqual("thin_cloud", result["label_set"])
+        with (self.root / "calibration_consensus.csv").open(encoding="utf-8", newline="") as handle:
+            consensus = list(csv.DictReader(handle))
+        self.assertEqual("thin_cloud", consensus[0]["agreed_label_set"])
+        self.assertEqual("Panel decision", consensus[0]["rule_or_counterexample"])
+        self.assertEqual("kept", consensus[0]["extra"])
+        self.assertIn("haze_cirrus", (self.root / "reviewer_B_calibration.csv").read_text(encoding="utf-8"))
+
+    def test_merge_rejects_reviewer_tile_order_mismatch(self):
+        self.create_merge_files(reviewer_b_tile_order="tile-2,tile-1")
+        with self.assertRaisesRegex(UserFacingError, "记录顺序不一致"):
+            MergeStore(
+                self.root,
+                "reviewer_A_calibration.csv",
+                "reviewer_B_calibration.csv",
+                "calibration_consensus.csv",
+                "label_set.csv",
+            )
 
 
 if __name__ == "__main__":

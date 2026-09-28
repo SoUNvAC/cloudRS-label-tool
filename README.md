@@ -17,11 +17,25 @@ python app.py --csv reviewer_A_calibration.csv --open-browser
 python app.py --csv reviewer_B_main.csv --open-browser
 ```
 
-浏览器会打开 `http://127.0.0.1:8765/`。按 `Ctrl+C` 停止服务。请勿同时在两个工具实例中编辑同一个 CSV。
+终端会显示浏览器地址。按 `Ctrl+C` 停止服务。请勿同时在两个工具实例中编辑同一个 CSV。
+
+## 合并两位 reviewer 的校准结果
+
+评审团使用合并模式读取两份独立的 reviewer 结果，并只写入最终共识文件：
+
+```powershell
+python app.py --merge --reviewer-a reviewer_A_calibration.csv --reviewer-b reviewer_B_calibration.csv --consensus calibration_consensus.csv --open-browser
+```
+
+页面中央仍为当前 `tile_id` 的 PNG。右栏先以只读卡片展示 Reviewer A 与 Reviewer B 的 `label_set` 和 notes，并明确提示两人的标签是否一致；评审团再填写最终 `agreed_label_set` 和 `rule_or_counterexample`。
+
+- 只会更新 `calibration_consensus.csv`，两份 reviewer CSV 在合并模式下绝不会被写入。
+- 两份 reviewer CSV 与 consensus CSV 的 `tile_id`、行数和顺序必须完全一致；不一致时工具拒绝启动或保存，避免错误合并。
+- 最终共识沿用原有自动保存、切图前强制保存、原子替换、快照和审计日志机制。
 
 ## 标注与保存
 
-- 鼠标滚轮缩放，拖动图片平移；工具栏也提供适应窗口和 100%。
+- 鼠标滚轮缩放；按住空格再左键拖动，或用鼠标中键拖动平移图片。工具栏也提供适应窗口和 100%。
 - `←` / `→` 切图时，当前行会先强制保存；保存失败就不会切图。
 - 标签或 notes 修改后自动保存，也可点击“立即保存”。每次写入先生成 `.annotation_history/` 中的原始快照，再以临时文件加原子替换方式更新 CSV；审计记录保存在同一目录的 `audit.jsonl`。
 - CSV 中的额外列、行顺序和 `tile_id` 会保留。空标签代表“未完成”，交付前请用“下一张未完成”检查。

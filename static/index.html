@@ -41,10 +41,30 @@
       </section>
 
       <aside class="annotation-panel" aria-label="标注面板">
+        <section id="reviewer-comparison" class="reviewer-comparison" hidden aria-label="独立评审结果">
+          <div class="comparison-heading">
+            <div>
+              <h2>独立评审结果</h2>
+              <p id="reviewer-agreement" class="muted"></p>
+            </div>
+          </div>
+          <div class="reviewer-grid">
+            <article class="reviewer-card reviewer-a-card">
+              <h3 id="reviewer-a-name">Reviewer A</h3>
+              <p id="reviewer-a-label" class="reviewer-label">—</p>
+              <p id="reviewer-a-notes" class="reviewer-notes">—</p>
+            </article>
+            <article class="reviewer-card reviewer-b-card">
+              <h3 id="reviewer-b-name">Reviewer B</h3>
+              <p id="reviewer-b-label" class="reviewer-label">—</p>
+              <p id="reviewer-b-notes" class="reviewer-notes">—</p>
+            </article>
+          </div>
+        </section>
         <div class="panel-heading">
           <div>
-            <h2>label_set</h2>
-            <p class="muted">当前图的标签与备注</p>
+            <h2 id="label-heading">label_set</h2>
+            <p id="label-subtitle" class="muted">当前图的标签与备注</p>
           </div>
           <button id="reload-labels-button" type="button" title="重新读取本地 label_set.csv">更新 label_set</button>
         </div>
@@ -60,7 +80,7 @@
         <button id="clear-labels-button" class="text-button" type="button">清空标签（标为未完成）</button>
 
         <label class="notes-field" for="notes">
-          <span>notes</span>
+          <span id="notes-heading">notes</span>
           <textarea id="notes" rows="7" maxlength="10000" placeholder="可选备注；会自动保存"></textarea>
         </label>
         <div class="panel-actions">

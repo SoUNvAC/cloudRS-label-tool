@@ -26,7 +26,8 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 
-REQUIRED_COLUMNS = ("tile_id", "label_set", "notes")
+REVIEWER_COLUMNS = ("tile_id", "label_set", "notes")
+CONSENSUS_COLUMNS = ("tile_id", "agreed_label_set", "rule_or_counterexample")
 MAX_NOTES_LENGTH = 10_000
 
 
@@ -64,10 +65,22 @@ def truthy(value: str | None, default: bool) -> bool:
 
 
 class AnnotationStore:
-    def __init__(self, data_dir: Path, csv_name: str, labels_name: str) -> None:
+    def __init__(
+        self,
+        data_dir: Path,
+        csv_name: str,
+        labels_name: str,
+        *,
+        label_column: str = "label_set",
+        notes_column: str = "notes",
+        mode: str = "annotation",
+    ) -> None:
         self.data_dir = data_dir.resolve()
         self.csv_path = self._safe_local_file(csv_name, suffix=".csv")
         self.labels_path = self._safe_local_file(labels_name, suffix=".csv")
+        self.label_column = label_column
+        self.notes_column = notes_column
+        self.mode = mode
         self.panels_dir = (self.data_dir / "panels").resolve()
         self.backup_dir = self.data_dir / ".annotation_history"
         self.audit_path = self.backup_dir / "audit.jsonl"
@@ -102,7 +115,7 @@ class AnnotationStore:
 
     def _validate_csv_layout(self, path: Path) -> None:
         fieldnames, rows = self._read_csv(path)
-        missing = set(REQUIRED_COLUMNS).difference(fieldnames)
+        missing = {"tile_id", self.label_column, self.notes_column}.difference(fieldnames)
         if missing:
             raise UserFacingError(f"{path.name} 缺少必需列：{', '.join(sorted(missing))}")
         tile_ids = [row["tile_id"].strip() for row in rows]
@@ -189,12 +202,13 @@ class AnnotationStore:
     def state(self) -> dict[str, Any]:
         _, rows = self._read_csv(self.csv_path)
         return {
+            "mode": self.mode,
             "csv_name": self.csv_path.name,
             "tiles": [
                 {
                     "tile_id": row["tile_id"].strip(),
-                    "label_set": row.get("label_set", ""),
-                    "notes": row.get("notes", ""),
+                    "label_set": row.get(self.label_column, ""),
+                    "notes": row.get(self.notes_column, ""),
                     "has_image": self.image_path(row["tile_id"].strip()) is not None,
                 }
                 for row in rows
@@ -229,9 +243,9 @@ class AnnotationStore:
             target = next((row for row in rows if row["tile_id"].strip() == tile_id), None)
             if target is None:
                 raise UserFacingError(f"找不到 tile_id：{tile_id}")
-            previous = {"label_set": target.get("label_set", ""), "notes": target.get("notes", "")}
-            target["label_set"] = normalized_labels
-            target["notes"] = notes
+            previous = {"label_set": target.get(self.label_column, ""), "notes": target.get(self.notes_column, "")}
+            target[self.label_column] = normalized_labels
+            target[self.notes_column] = notes
             changed = previous != {"label_set": normalized_labels, "notes": notes}
             if changed:
                 self._backup_original()
@@ -246,9 +260,8 @@ class AnnotationStore:
             "saved_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         }
 
-    @staticmethod
-    def _validate_rows(fieldnames: list[str], rows: list[dict[str, str]]) -> None:
-        missing = set(REQUIRED_COLUMNS).difference(fieldnames)
+    def _validate_rows(self, fieldnames: list[str], rows: list[dict[str, str]]) -> None:
+        missing = {"tile_id", self.label_column, self.notes_column}.difference(fieldnames)
         if missing:
             raise UserFacingError(f"CSV 已被外部修改，缺少列：{', '.join(sorted(missing))}")
         if not rows:
@@ -290,16 +303,116 @@ class AnnotationStore:
         record = {
             "timestamp": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
             "csv": self.csv_path.name,
+            "mode": self.mode,
             "tile_id": tile_id,
             "reason": reason,
             "changed": changed,
             "before": previous,
-            "after": {"label_set": target.get("label_set", ""), "notes": target.get("notes", "")},
+            "after": {
+                "label_set": target.get(self.label_column, ""),
+                "notes": target.get(self.notes_column, ""),
+            },
         }
         with self.audit_path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
+
+
+class MergeStore(AnnotationStore):
+    """Read two reviewer files and write only the consensus delivery file."""
+
+    def __init__(
+        self,
+        data_dir: Path,
+        reviewer_a_name: str,
+        reviewer_b_name: str,
+        consensus_name: str,
+        labels_name: str,
+    ) -> None:
+        super().__init__(
+            data_dir,
+            consensus_name,
+            labels_name,
+            label_column="agreed_label_set",
+            notes_column="rule_or_counterexample",
+            mode="merge",
+        )
+        self.reviewer_a_path = self._safe_local_file(reviewer_a_name, suffix=".csv")
+        self.reviewer_b_path = self._safe_local_file(reviewer_b_name, suffix=".csv")
+        if self.csv_path in {self.reviewer_a_path, self.reviewer_b_path}:
+            raise UserFacingError("最终共识 CSV 不能与 reviewer A 或 B 使用同一个文件")
+        if self.reviewer_a_path == self.reviewer_b_path:
+            raise UserFacingError("reviewer A 与 reviewer B 必须是两个不同的 CSV 文件")
+        self._validate_merge_layout()
+
+    @staticmethod
+    def _validate_reviewer_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+        fieldnames, rows = AnnotationStore._read_csv(path)
+        missing = set(REVIEWER_COLUMNS).difference(fieldnames)
+        if missing:
+            raise UserFacingError(f"{path.name} 缺少 reviewer 列：{', '.join(sorted(missing))}")
+        tile_ids = [row["tile_id"].strip() for row in rows]
+        if not rows or not all(tile_ids):
+            raise UserFacingError(f"{path.name} 缺少有效的 reviewer 记录")
+        if len(tile_ids) != len(set(tile_ids)):
+            raise UserFacingError(f"{path.name} 存在重复 tile_id")
+        return fieldnames, rows
+
+    @staticmethod
+    def _tile_ids(rows: list[dict[str, str]]) -> list[str]:
+        return [row["tile_id"].strip() for row in rows]
+
+    def _merge_rows(self) -> tuple[list[dict[str, str]], list[dict[str, str]], list[dict[str, str]]]:
+        _, reviewer_a_rows = self._validate_reviewer_rows(self.reviewer_a_path)
+        _, reviewer_b_rows = self._validate_reviewer_rows(self.reviewer_b_path)
+        consensus_fields, consensus_rows = self._read_csv(self.csv_path)
+        self._validate_rows(consensus_fields, consensus_rows)
+        expected = self._tile_ids(reviewer_a_rows)
+        if self._tile_ids(reviewer_b_rows) != expected:
+            raise UserFacingError("reviewer A 与 reviewer B 的 tile_id 或记录顺序不一致，已拒绝合并")
+        if self._tile_ids(consensus_rows) != expected:
+            raise UserFacingError("calibration_consensus.csv 与 reviewer A 的 tile_id 或记录顺序不一致，已拒绝合并")
+        return reviewer_a_rows, reviewer_b_rows, consensus_rows
+
+    def _validate_merge_layout(self) -> None:
+        self._merge_rows()
+
+    def state(self) -> dict[str, Any]:
+        reviewer_a_rows, reviewer_b_rows, consensus_rows = self._merge_rows()
+        tiles = []
+        for reviewer_a, reviewer_b, consensus in zip(reviewer_a_rows, reviewer_b_rows, consensus_rows, strict=True):
+            tile_id = consensus["tile_id"].strip()
+            tiles.append(
+                {
+                    "tile_id": tile_id,
+                    "label_set": consensus.get(self.label_column, ""),
+                    "notes": consensus.get(self.notes_column, ""),
+                    "has_image": self.image_path(tile_id) is not None,
+                    "reviewer_a": {
+                        "label_set": reviewer_a.get("label_set", ""),
+                        "notes": reviewer_a.get("notes", ""),
+                    },
+                    "reviewer_b": {
+                        "label_set": reviewer_b.get("label_set", ""),
+                        "notes": reviewer_b.get("notes", ""),
+                    },
+                }
+            )
+        return {
+            "mode": self.mode,
+            "csv_name": self.csv_path.name,
+            "reviewer_a_name": self.reviewer_a_path.name,
+            "reviewer_b_name": self.reviewer_b_path.name,
+            "tiles": tiles,
+            "labels": [definition.as_json() for definition in self.read_labels()],
+        }
+
+    def save(self, tile_id: Any, labels: Any, notes: Any, reason: Any) -> dict[str, Any]:
+        # Re-check sources before each write so an externally replaced reviewer file
+        # cannot silently be merged into a mismatched consensus file.
+        self._validate_merge_layout()
+        return super().save(tile_id, labels, notes, reason)
 
 
 class AppHandler(BaseHTTPRequestHandler):
@@ -394,7 +507,12 @@ class AppHandler(BaseHTTPRequestHandler):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="本地图片标注 Web 工具")
-    parser.add_argument("--csv", required=True, help="要编辑的单一交付 CSV，例如 reviewer_A_main.csv")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--csv", help="要编辑的单一交付 CSV，例如 reviewer_A_main.csv")
+    mode.add_argument("--merge", action="store_true", help="开启双 reviewer 的共识合并模式")
+    parser.add_argument("--reviewer-a", help="合并模式中 reviewer A 的 CSV")
+    parser.add_argument("--reviewer-b", help="合并模式中 reviewer B 的 CSV")
+    parser.add_argument("--consensus", help="合并模式写入的 calibration_consensus.csv")
     parser.add_argument("--labels", default="label_set.csv", help="标签配置 CSV（默认：label_set.csv）")
     parser.add_argument("--data-dir", default=Path(__file__).parent, type=Path, help="CSV 和 panels 目录（默认：程序目录）")
     parser.add_argument("--host", default="127.0.0.1", help="默认仅监听本机；不要改为公网地址")
@@ -409,7 +527,21 @@ def main() -> int:
         print("安全限制：本工具仅允许监听本机地址。", file=sys.stderr)
         return 2
     try:
-        store = AnnotationStore(args.data_dir, args.csv, args.labels)
+        if args.merge:
+            missing = [
+                option
+                for option, value in {
+                    "--reviewer-a": args.reviewer_a,
+                    "--reviewer-b": args.reviewer_b,
+                    "--consensus": args.consensus,
+                }.items()
+                if not value
+            ]
+            if missing:
+                raise UserFacingError(f"合并模式缺少参数：{', '.join(missing)}")
+            store = MergeStore(args.data_dir, args.reviewer_a, args.reviewer_b, args.consensus, args.labels)
+        else:
+            store = AnnotationStore(args.data_dir, args.csv, args.labels)
     except UserFacingError as error:
         print(f"启动失败：{error}", file=sys.stderr)
         return 2
@@ -421,7 +553,11 @@ def main() -> int:
         return 2
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     url = f"http://{args.host}:{args.port}/"
-    print(f"正在编辑：{store.csv_path.name}")
+    if isinstance(store, MergeStore):
+        print(f"合并评审：{store.reviewer_a_path.name} + {store.reviewer_b_path.name}")
+        print(f"最终写入：{store.csv_path.name}")
+    else:
+        print(f"正在编辑：{store.csv_path.name}")
     print(f"打开浏览器：{url}")
     print("按 Ctrl+C 停止服务。")
     if args.open_browser:

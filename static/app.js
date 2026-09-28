@@ -1,4 +1,7 @@
 const state = {
+  mode: "annotation",
+  reviewerANamed: "Reviewer A",
+  reviewerBNamed: "Reviewer B",
   tiles: [],
   labels: [],
   currentIndex: 0,
@@ -17,6 +20,17 @@ const elements = {
   position: document.querySelector("#position"),
   tileId: document.querySelector("#tile-id"),
   completionSummary: document.querySelector("#completion-summary"),
+  reviewerComparison: document.querySelector("#reviewer-comparison"),
+  reviewerAgreement: document.querySelector("#reviewer-agreement"),
+  reviewerAName: document.querySelector("#reviewer-a-name"),
+  reviewerBName: document.querySelector("#reviewer-b-name"),
+  reviewerALabel: document.querySelector("#reviewer-a-label"),
+  reviewerBLabel: document.querySelector("#reviewer-b-label"),
+  reviewerANotes: document.querySelector("#reviewer-a-notes"),
+  reviewerBNotes: document.querySelector("#reviewer-b-notes"),
+  labelHeading: document.querySelector("#label-heading"),
+  labelSubtitle: document.querySelector("#label-subtitle"),
+  notesHeading: document.querySelector("#notes-heading"),
   viewport: document.querySelector("#image-viewport"),
   image: document.querySelector("#annotation-image"),
   missingImage: document.querySelector("#missing-image"),
@@ -58,6 +72,32 @@ function renderSummary() {
   elements.position.textContent = `${state.currentIndex + 1} / ${state.tiles.length}`;
   elements.previous.disabled = state.currentIndex === 0;
   elements.next.disabled = state.currentIndex === state.tiles.length - 1;
+}
+
+function displayReviewerValue(value, fallback = "（未填写）") {
+  return value.trim() || fallback;
+}
+
+function renderReviewerComparison(tile) {
+  const isMerge = state.mode === "merge";
+  elements.reviewerComparison.hidden = !isMerge;
+  elements.labelHeading.textContent = isMerge ? "最终共识 label_set" : "label_set";
+  elements.labelSubtitle.textContent = isMerge ? "评审团裁决；只会写入最终共识文件" : "当前图的标签与备注";
+  elements.notesHeading.textContent = isMerge ? "rule_or_counterexample" : "notes";
+  elements.notes.placeholder = isMerge ? "填写裁决规则或反例；会自动保存" : "可选备注；会自动保存";
+  if (!isMerge) return;
+
+  const reviewerA = tile.reviewer_a;
+  const reviewerB = tile.reviewer_b;
+  elements.reviewerAName.textContent = `Reviewer A · ${state.reviewerANamed}`;
+  elements.reviewerBName.textContent = `Reviewer B · ${state.reviewerBNamed}`;
+  elements.reviewerALabel.textContent = displayReviewerValue(reviewerA.label_set);
+  elements.reviewerBLabel.textContent = displayReviewerValue(reviewerB.label_set);
+  elements.reviewerANotes.textContent = displayReviewerValue(reviewerA.notes, "（无 notes）");
+  elements.reviewerBNotes.textContent = displayReviewerValue(reviewerB.notes, "（无 notes）");
+  const agreed = reviewerA.label_set.trim() === reviewerB.label_set.trim();
+  elements.reviewerAgreement.textContent = agreed ? "A / B 的 label_set 一致" : "A / B 的 label_set 不一致，需要裁决";
+  elements.reviewerAgreement.className = agreed ? "muted reviewer-match" : "muted reviewer-mismatch";
 }
 
 function renderTransform() {
@@ -165,6 +205,7 @@ function renderTile() {
   elements.missingImage.hidden = tile.has_image;
   elements.image.alt = `${tile.tile_id} 待标注图片`;
   resetToFit();
+  renderReviewerComparison(tile);
   renderLabels();
   renderSummary();
 }
@@ -371,7 +412,10 @@ async function initialize() {
     if (!response.ok) throw new Error(payload.error || "读取数据失败");
     state.tiles = payload.tiles;
     state.labels = payload.labels;
-    elements.csvName.textContent = payload.csv_name;
+    state.mode = payload.mode || "annotation";
+    state.reviewerANamed = payload.reviewer_a_name || "Reviewer A";
+    state.reviewerBNamed = payload.reviewer_b_name || "Reviewer B";
+    elements.csvName.textContent = state.mode === "merge" ? `合并输出：${payload.csv_name}` : payload.csv_name;
     const savedIndex = Number.parseInt(sessionStorage.getItem(`cloudrs-index:${payload.csv_name}`), 10);
     if (Number.isInteger(savedIndex) && savedIndex >= 0 && savedIndex < state.tiles.length) state.currentIndex = savedIndex;
     renderTile();
