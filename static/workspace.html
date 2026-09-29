@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CloudRS 图片标注工作区</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>CloudRS 图片标注</h1>
+        <p id="csv-name" class="muted"></p>
+      </div>
+      <div class="topbar-actions">
+        <a class="topbar-link" href="/">← 工作导航</a>
+        <div id="save-status" class="save-status" role="status" aria-live="polite">正在加载…</div>
+      </div>
+    </header>
+
+    <main class="app-layout">
+      <section class="viewer-panel" aria-label="图片查看器">
+        <div class="viewer-toolbar">
+          <div class="button-group">
+            <button id="previous-button" type="button" title="上一张（←）">← 上一张</button>
+            <button id="next-button" type="button" title="下一张（→）">下一张 →</button>
+          </div>
+          <strong id="position">- / -</strong>
+          <div class="button-group">
+            <button id="zoom-out-button" type="button" title="缩小（-）">−</button>
+            <button id="fit-button" type="button">适应窗口</button>
+            <button id="actual-size-button" type="button">100%</button>
+            <button id="zoom-in-button" type="button" title="放大（+）">＋</button>
+          </div>
+        </div>
+        <div id="image-viewport" class="image-viewport" aria-label="可缩放、可拖动的待标注图片">
+          <img id="annotation-image" alt="待标注图像" draggable="false" />
+          <p id="missing-image" class="missing-image" hidden>找不到对应 PNG 图片。</p>
+        </div>
+        <div class="tile-footer">
+          <span id="tile-id">—</span>
+          <span id="completion-summary" class="muted">—</span>
+        </div>
+      </section>
+
+      <aside class="annotation-panel" aria-label="标注面板">
+        <section id="agreement-queue-controls" class="agreement-queue-controls" hidden>
+          <label class="toggle-row" for="skip-agreements-toggle">
+            <input id="skip-agreements-toggle" type="checkbox" />
+            <span>自动合并 A/B 一致项，只看待裁决项</span>
+          </label>
+          <p id="agreement-queue-hint" class="hint">勾选后会将空的最终共识行批量填入 A/B 一致标签；已有裁决不会覆盖。</p>
+        </section>
+        <section id="reviewer-comparison" class="reviewer-comparison" hidden aria-label="独立评审结果">
+          <div class="comparison-heading">
+            <div>
+              <h2>独立评审结果</h2>
+              <p id="reviewer-agreement" class="muted"></p>
+            </div>
+          </div>
+          <div class="reviewer-grid">
+            <article class="reviewer-card reviewer-a-card">
+              <h3 id="reviewer-a-name">Reviewer A</h3>
+              <p id="reviewer-a-label" class="reviewer-label">—</p>
+              <p id="reviewer-a-notes" class="reviewer-notes">—</p>
+            </article>
+            <article class="reviewer-card reviewer-b-card">
+              <h3 id="reviewer-b-name">Reviewer B</h3>
+              <p id="reviewer-b-label" class="reviewer-label">—</p>
+              <p id="reviewer-b-notes" class="reviewer-notes">—</p>
+            </article>
+          </div>
+        </section>
+        <div class="panel-heading">
+          <div>
+            <h2 id="label-heading">label_set</h2>
+            <p id="label-subtitle" class="muted">当前图的标签与备注</p>
+          </div>
+          <button id="reload-labels-button" type="button" title="重新读取本地 label_set.csv">更新 label_set</button>
+        </div>
+
+        <label class="toggle-row" for="multi-select-toggle">
+          <input id="multi-select-toggle" type="checkbox" />
+          <span>启用双标签（最多两个）</span>
+        </label>
+        <p id="multi-select-hint" class="hint">默认单选。启用后仅可选择配置允许的两个语义标签。</p>
+
+        <div id="label-options" class="label-options" role="group" aria-label="标签选项"></div>
+        <p id="label-warning" class="warning" hidden></p>
+        <button id="clear-labels-button" class="text-button" type="button">清空标签（标为未完成）</button>
+
+        <label class="notes-field" for="notes">
+          <span id="notes-heading">notes</span>
+          <textarea id="notes" rows="7" maxlength="10000" placeholder="可选备注；会自动保存"></textarea>
+        </label>
+        <div class="panel-actions">
+          <button id="save-button" class="primary" type="button">立即保存</button>
+          <button id="next-unfinished-button" type="button">下一张未完成</button>
+        </div>
+        <p class="keyboard-hint">快捷键：←/→ 切图，+/- 缩放，F 适应窗口；按住空格再左键拖动，或用鼠标中键平移。</p>
+      </aside>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -23,7 +23,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 REVIEWER_COLUMNS = ("tile_id", "label_set", "notes")
@@ -613,8 +613,108 @@ class SingleFileMergeStore(AnnotationStore):
             os.fsync(handle.fileno())
 
 
+class WorkspaceManager:
+    """Keeps one locally selected phase workspace active for this web server."""
+
+    def __init__(self, data_dir: Path, default_labels: str) -> None:
+        self.data_dir = data_dir.resolve()
+        self.default_labels = default_labels
+        self._store: AnnotationStore | None = None
+        self._lock = threading.RLock()
+        if not self.data_dir.is_dir():
+            raise UserFacingError(f"找不到 phase 数据目录：{self.data_dir}")
+
+    def _safe_csv_path(self, name: Any) -> Path:
+        if not isinstance(name, str) or not name.strip():
+            raise UserFacingError("请选择一个 CSV 文件")
+        candidate = Path(name)
+        if candidate.is_absolute() or candidate.name != name or candidate.suffix.lower() != ".csv":
+            raise UserFacingError(f"只能选择 phase 根目录内的 CSV 文件：{name!r}")
+        result = (self.data_dir / candidate).resolve()
+        if result.parent != self.data_dir or not result.is_file():
+            raise UserFacingError(f"找不到 CSV 文件：{candidate}")
+        return result
+
+    def _catalog_entry(self, path: Path) -> dict[str, Any]:
+        try:
+            fieldnames, rows = AnnotationStore._read_csv(path)
+            fields = set(fieldnames)
+            if "label" in fields:
+                kind = "label_config"
+            elif set(SINGLE_FILE_MERGE_COLUMNS).issubset(fields):
+                kind = "single_file_merge"
+            elif set(CONSENSUS_COLUMNS).issubset(fields):
+                kind = "consensus_output"
+            elif set(REVIEWER_COLUMNS).issubset(fields):
+                kind = "reviewer"
+            else:
+                kind = "other"
+            return {"name": path.name, "kind": kind, "rows": len(rows), "columns": fieldnames}
+        except UserFacingError as error:
+            return {"name": path.name, "kind": "invalid", "rows": 0, "columns": [], "error": str(error)}
+
+    def navigation(self) -> dict[str, Any]:
+        entries = [self._catalog_entry(path) for path in sorted(self.data_dir.glob("*.csv"), key=lambda item: item.name.lower())]
+        label_files = [entry["name"] for entry in entries if entry["kind"] == "label_config"]
+        default_labels = self.default_labels if self.default_labels in label_files else (label_files[0] if label_files else "")
+        panels_dir = self.data_dir / "panels"
+        panel_count = len(list(panels_dir.glob("*.png"))) if panels_dir.is_dir() else 0
+        return {
+            "data_dir": str(self.data_dir),
+            "csv_files": entries,
+            "label_files": label_files,
+            "default_labels": default_labels,
+            "panel_count": panel_count,
+            "active": self._store is not None,
+        }
+
+    def label_preview(self, labels_name: Any) -> dict[str, Any]:
+        path = self._safe_csv_path(labels_name)
+        fieldnames, rows = AnnotationStore._read_csv(path)
+        if "label" not in fieldnames:
+            raise UserFacingError(f"{path.name} 不是 label_set 配置文件")
+        preview = [
+            {
+                "label": row.get("label", "").strip(),
+                "description": row.get("description", "").strip(),
+                "multi_selectable": row.get("multi_selectable", ""),
+                "exclusive": row.get("exclusive", ""),
+            }
+            for row in rows
+            if row.get("label", "").strip()
+        ]
+        return {"name": path.name, "labels": preview}
+
+    def activate(self, payload: dict[str, Any]) -> dict[str, Any]:
+        mode = payload.get("mode")
+        labels = payload.get("labels", self.default_labels)
+        with self._lock:
+            if mode == "review":
+                store: AnnotationStore = AnnotationStore(self.data_dir, payload.get("csv"), labels)
+            elif mode == "consensus":
+                store = MergeStore(
+                    self.data_dir,
+                    payload.get("reviewer_a"),
+                    payload.get("reviewer_b"),
+                    payload.get("consensus"),
+                    labels,
+                )
+            elif mode == "single_file_consensus":
+                store = SingleFileMergeStore(self.data_dir, payload.get("csv"), labels)
+            else:
+                raise UserFacingError("请选择独立评审、共识裁决或单文件共识裁决模式")
+            self._store = store
+            return store.state()
+
+    def current_store(self) -> AnnotationStore:
+        with self._lock:
+            if self._store is None:
+                raise UserFacingError("尚未选择工作模式和 CSV 文件")
+            return self._store
+
+
 class AppHandler(BaseHTTPRequestHandler):
-    store: AnnotationStore
+    workspace_manager: WorkspaceManager
     static_dir: Path
 
     server_version = "CloudRSLabelTool/0.1"
@@ -624,13 +724,21 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             if path == "/" or path == "/index.html":
                 self._serve_file(self.static_dir / "index.html", "text/html; charset=utf-8")
+            elif path == "/workspace":
+                self._serve_file(self.static_dir / "workspace.html", "text/html; charset=utf-8")
+            elif path == "/api/navigation":
+                self._send_json(HTTPStatus.OK, self.workspace_manager.navigation())
+            elif path == "/api/labels-preview":
+                query = parse_qs(urlparse(self.path).query)
+                self._send_json(HTTPStatus.OK, self.workspace_manager.label_preview(query.get("labels", [""])[0]))
             elif path == "/api/state":
-                self._send_json(HTTPStatus.OK, self.store.state())
+                self._send_json(HTTPStatus.OK, self.workspace_manager.current_store().state())
             elif path == "/api/labels":
-                self._send_json(HTTPStatus.OK, {"labels": [item.as_json() for item in self.store.read_labels()]})
+                store = self.workspace_manager.current_store()
+                self._send_json(HTTPStatus.OK, {"labels": [item.as_json() for item in store.read_labels()]})
             elif path.startswith("/api/image/"):
                 tile_id = path.removeprefix("/api/image/")
-                image = self.store.image_path(tile_id)
+                image = self.workspace_manager.current_store().image_path(tile_id)
                 if image is None:
                     self._send_json(HTTPStatus.NOT_FOUND, {"error": "找不到对应 PNG 图片"})
                 else:
@@ -657,7 +765,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = unquote(urlparse(self.path).path)
-        if path not in {"/api/save", "/api/auto-merge-agreements"}:
+        if path not in {"/api/workspace", "/api/save", "/api/auto-merge-agreements"}:
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "接口不存在"})
             return
         try:
@@ -667,14 +775,18 @@ class AppHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
             if not isinstance(payload, dict):
                 raise UserFacingError("请求必须是 JSON 对象")
-            if path == "/api/auto-merge-agreements":
-                if not isinstance(self.store, (MergeStore, SingleFileMergeStore)):
-                    raise UserFacingError("只有合并模式可以自动写入 A/B 一致项")
-                result = self.store.auto_merge_agreements()
+            if path == "/api/workspace":
+                result = self.workspace_manager.activate(payload)
             else:
-                result = self.store.save(
-                    payload.get("tile_id"), payload.get("labels"), payload.get("notes"), payload.get("reason", "manual")
-                )
+                store = self.workspace_manager.current_store()
+                if path == "/api/auto-merge-agreements":
+                    if not isinstance(store, (MergeStore, SingleFileMergeStore)):
+                        raise UserFacingError("只有合并模式可以自动写入 A/B 一致项")
+                    result = store.auto_merge_agreements()
+                else:
+                    result = store.save(
+                        payload.get("tile_id"), payload.get("labels"), payload.get("notes"), payload.get("reason", "manual")
+                    )
             self._send_json(HTTPStatus.OK, result)
         except json.JSONDecodeError:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "请求不是有效 JSON"})
@@ -710,7 +822,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="本地图片标注 Web 工具")
-    mode = parser.add_mutually_exclusive_group(required=True)
+    mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--csv", help="要编辑的单一交付 CSV，例如 reviewer_A_main.csv")
     mode.add_argument("--merge", action="store_true", help="开启双 reviewer 的共识合并模式")
     mode.add_argument("--merge-csv", help="开启单文件的 A/B 合并裁决模式")
@@ -731,6 +843,8 @@ def main() -> int:
         print("安全限制：本工具仅允许监听本机地址。", file=sys.stderr)
         return 2
     try:
+        workspace_manager = WorkspaceManager(args.data_dir, args.labels)
+        direct_workspace = False
         if args.merge:
             missing = [
                 option
@@ -743,29 +857,44 @@ def main() -> int:
             ]
             if missing:
                 raise UserFacingError(f"合并模式缺少参数：{', '.join(missing)}")
-            store = MergeStore(args.data_dir, args.reviewer_a, args.reviewer_b, args.consensus, args.labels)
+            workspace_manager.activate(
+                {
+                    "mode": "consensus",
+                    "reviewer_a": args.reviewer_a,
+                    "reviewer_b": args.reviewer_b,
+                    "consensus": args.consensus,
+                    "labels": args.labels,
+                }
+            )
+            direct_workspace = True
         elif args.merge_csv:
-            store = SingleFileMergeStore(args.data_dir, args.merge_csv, args.labels)
-        else:
-            store = AnnotationStore(args.data_dir, args.csv, args.labels)
+            workspace_manager.activate({"mode": "single_file_consensus", "csv": args.merge_csv, "labels": args.labels})
+            direct_workspace = True
+        elif args.csv:
+            workspace_manager.activate({"mode": "review", "csv": args.csv, "labels": args.labels})
+            direct_workspace = True
     except UserFacingError as error:
         print(f"启动失败：{error}", file=sys.stderr)
         return 2
 
-    AppHandler.store = store
+    AppHandler.workspace_manager = workspace_manager
     AppHandler.static_dir = (Path(__file__).parent / "static").resolve()
     if not AppHandler.static_dir.is_dir():
         print("启动失败：找不到 static 目录。", file=sys.stderr)
         return 2
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
-    url = f"http://{args.host}:{args.port}/"
-    if isinstance(store, MergeStore):
-        print(f"合并评审：{store.reviewer_a_path.name} + {store.reviewer_b_path.name}")
-        print(f"最终写入：{store.csv_path.name}")
-    elif isinstance(store, SingleFileMergeStore):
-        print(f"单文件合并评审：{store.csv_path.name}")
+    url = f"http://{args.host}:{args.port}{'/workspace' if direct_workspace else '/'}"
+    if direct_workspace:
+        store = workspace_manager.current_store()
+        if isinstance(store, MergeStore):
+            print(f"合并评审：{store.reviewer_a_path.name} + {store.reviewer_b_path.name}")
+            print(f"最终写入：{store.csv_path.name}")
+        elif isinstance(store, SingleFileMergeStore):
+            print(f"单文件合并评审：{store.csv_path.name}")
+        else:
+            print(f"正在编辑：{store.csv_path.name}")
     else:
-        print(f"正在编辑：{store.csv_path.name}")
+        print(f"导航模式：请选择 phase 工作区中的 CSV 文件（{workspace_manager.data_dir}）")
     print(f"打开浏览器：{url}")
     print("按 Ctrl+C 停止服务。")
     if args.open_browser:

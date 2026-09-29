@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app import AnnotationStore, MergeStore, SingleFileMergeStore, UserFacingError
+from app import AnnotationStore, MergeStore, SingleFileMergeStore, UserFacingError, WorkspaceManager
 
 
 LABELS = """label,description,multi_selectable,exclusive,allowed_with
@@ -157,6 +157,39 @@ class AnnotationStoreTests(unittest.TestCase):
         self.assertEqual("Panel decision", rows[1]["rationale"])
         self.assertEqual("uncertain", rows[1]["reviewer_B_label_set"])
         self.assertEqual("jumped", rows[1]["extra"])
+
+    def test_workspace_manager_catalog_preview_and_activation(self):
+        self.create_merge_files()
+        (self.root / "single_merge.csv").write_text(
+            "tile_id,reviewer_A_label_set,reviewer_B_label_set,final_label_set,rationale\n"
+            "tile-1,clear,clear,,\n",
+            encoding="utf-8",
+        )
+        manager = WorkspaceManager(self.root, "label_set.csv")
+        catalog = manager.navigation()
+        kinds = {entry["name"]: entry["kind"] for entry in catalog["csv_files"]}
+        self.assertEqual("reviewer", kinds["reviewer.csv"])
+        self.assertEqual("label_config", kinds["label_set.csv"])
+        self.assertEqual("single_file_merge", kinds["single_merge.csv"])
+        self.assertEqual(1, catalog["panel_count"])
+        self.assertEqual("clear", manager.label_preview("label_set.csv")["labels"][0]["label"])
+
+        review_state = manager.activate({"mode": "review", "csv": "reviewer.csv", "labels": "label_set.csv"})
+        self.assertEqual("annotation", review_state["mode"])
+        consensus_state = manager.activate(
+            {
+                "mode": "consensus",
+                "reviewer_a": "reviewer_A_calibration.csv",
+                "reviewer_b": "reviewer_B_calibration.csv",
+                "consensus": "calibration_consensus.csv",
+                "labels": "label_set.csv",
+            }
+        )
+        self.assertEqual("merge", consensus_state["mode"])
+        single_state = manager.activate(
+            {"mode": "single_file_consensus", "csv": "single_merge.csv", "labels": "label_set.csv"}
+        )
+        self.assertEqual("single_file", single_state["merge_layout"])
 
 
 if __name__ == "__main__":

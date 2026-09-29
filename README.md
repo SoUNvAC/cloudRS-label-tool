@@ -2,29 +2,43 @@
 
 这是一个仅监听本机地址（`127.0.0.1`）的 Python Web 标注工具。它把一个 CSV 交付文件绑定到一次运行中，显示 `panels/<tile_id>.png`，并在每次编辑和切换图片时使用原子写入保存。
 
-## 启动
+## 导航式启动（推荐）
 
-需要 Python 3.10 或更新版本；无需安装第三方依赖。在本目录运行：
+需要 Python 3.10 或更新版本；无需安装第三方依赖。一个完整 Phase 建议放在独立目录：
 
-```powershell
-python app.py --csv reviewer_A_main.csv --open-browser
+```text
+phase-xxx/
+  panels/
+  label_set.csv
+  reviewer_A_calibration.csv
+  reviewer_B_calibration.csv
+  calibration_consensus.csv
+  reviewer_A_confirmation.csv
+  reviewer_B_confirmation.csv
 ```
 
-校准和另一位 reviewer 应在独立运行中指定各自的文件：
+启动时只指定该 Phase 目录：
+
+```powershell
+python app.py --data-dir D:\path\to\phase-xxx --open-browser
+```
+
+首页会显示 CSV 清单、记录数、PNG 数量和 `label_set` 预览。选择模式和 CSV 后才进入工作区：
+
+- **独立评审**：选择一份 reviewer CSV，完成 calibration 或 confirmation；每次只打开一个人的一份文件。
+- **共识裁决（三文件）**：选择 A calibration、B calibration、`calibration_consensus.csv`，完成共同裁决。
+- **共识裁决（单文件）**：选择同时含 A/B/final 字段的单文件。
+
+PNG 始终通过 `panels/<tile_id>.png` 查找，因此 CSV 内的编号可跳跃。终端会显示浏览器地址；按 `Ctrl+C` 停止服务。
+
+## 命令行直达工作区（兼容保留）
+
+如果不需要导航页，仍可直接进入一份工作文件：
 
 ```powershell
 python app.py --csv reviewer_A_calibration.csv --open-browser
-python app.py --csv reviewer_B_main.csv --open-browser
-```
-
-终端会显示浏览器地址。按 `Ctrl+C` 停止服务。请勿同时在两个工具实例中编辑同一个 CSV。
-
-## 合并两位 reviewer 的校准结果
-
-评审团使用合并模式读取两份独立的 reviewer 结果，并只写入最终共识文件：
-
-```powershell
 python app.py --merge --reviewer-a reviewer_A_calibration.csv --reviewer-b reviewer_B_calibration.csv --consensus calibration_consensus.csv --open-browser
+python app.py --merge-csv merge_adjudication.csv --open-browser
 ```
 
 页面中央仍为当前 `tile_id` 的 PNG。右栏先以只读卡片展示 Reviewer A 与 Reviewer B 的 `label_set` 和 notes，并明确提示两人的标签是否一致；评审团再填写最终 `agreed_label_set` 和 `rule_or_counterexample`。
