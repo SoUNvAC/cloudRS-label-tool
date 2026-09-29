@@ -416,7 +416,28 @@ function nextUnfinishedIndex() {
 
 function bindViewerInteractions() {
   let pointer = null;
+  const touchPointers = new Map();
+  let pinch = null;
   let spacePressed = false;
+  const clampScale = (scale) => Math.min(8, Math.max(0.2, scale));
+  const touchDistance = () => {
+    const [first, second] = [...touchPointers.values()];
+    return Math.hypot(second.x - first.x, second.y - first.y);
+  };
+  const touchMidpoint = () => {
+    const [first, second] = [...touchPointers.values()];
+    return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+  };
+  const beginPinch = () => {
+    if (touchPointers.size < 2) return;
+    pinch = {
+      distance: Math.max(touchDistance(), 1),
+      midpoint: touchMidpoint(),
+      transform: { ...state.transform },
+    };
+    pointer = null;
+    elements.viewport.classList.add("dragging");
+  };
   const refreshPanCursor = () => {
     elements.viewport.classList.toggle("pan-ready", spacePressed);
   };
@@ -425,6 +446,18 @@ function bindViewerInteractions() {
     zoom(event.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
   elements.viewport.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "touch") {
+      event.preventDefault();
+      touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      elements.viewport.setPointerCapture(event.pointerId);
+      if (touchPointers.size >= 2) {
+        beginPinch();
+      } else {
+        pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
+        elements.viewport.classList.add("dragging");
+      }
+      return;
+    }
     const wantsPan = event.pointerType === "touch" || event.button === 1 || (event.button === 0 && spacePressed);
     if (!wantsPan) return;
     event.preventDefault();
@@ -433,6 +466,25 @@ function bindViewerInteractions() {
     elements.viewport.classList.add("dragging");
   });
   elements.viewport.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "touch" && touchPointers.has(event.pointerId)) {
+      event.preventDefault();
+      touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (touchPointers.size >= 2) {
+        if (!pinch) beginPinch();
+        const midpoint = touchMidpoint();
+        state.transform.scale = clampScale(pinch.transform.scale * touchDistance() / pinch.distance);
+        state.transform.x = pinch.transform.x + midpoint.x - pinch.midpoint.x;
+        state.transform.y = pinch.transform.y + midpoint.y - pinch.midpoint.y;
+        renderTransform();
+      } else if (pointer && event.pointerId === pointer.id) {
+        state.transform.x += event.clientX - pointer.x;
+        state.transform.y += event.clientY - pointer.y;
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        renderTransform();
+      }
+      return;
+    }
     if (!pointer || event.pointerId !== pointer.id) return;
     state.transform.x += event.clientX - pointer.x;
     state.transform.y += event.clientY - pointer.y;
@@ -440,7 +492,19 @@ function bindViewerInteractions() {
     pointer.y = event.clientY;
     renderTransform();
   });
-  const endDrag = () => {
+  const endDrag = (event) => {
+    if (event?.pointerType === "touch") {
+      touchPointers.delete(event.pointerId);
+      pinch = null;
+      if (touchPointers.size === 1) {
+        const [id, point] = touchPointers.entries().next().value;
+        pointer = { id, ...point };
+      } else {
+        pointer = null;
+        elements.viewport.classList.remove("dragging");
+      }
+      return;
+    }
     pointer = null;
     elements.viewport.classList.remove("dragging");
   };
@@ -461,6 +525,8 @@ function bindViewerInteractions() {
     spacePressed = false;
     refreshPanCursor();
     endDrag();
+    touchPointers.clear();
+    pinch = null;
   });
 }
 
