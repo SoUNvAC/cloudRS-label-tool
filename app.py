@@ -208,8 +208,12 @@ class AnnotationStore:
 
     def state(self) -> dict[str, Any]:
         _, rows = self._read_csv(self.csv_path)
+        normalized_name = "".join(character for character in self.csv_path.stem.lower() if character.isalnum())
+        reviewer_role = "A" if normalized_name.startswith("reviewera") else "B" if normalized_name.startswith("reviewerb") else ""
         return {
             "mode": self.mode,
+            "workspace_mode": "review",
+            "reviewer_role": reviewer_role,
             "csv_name": self.csv_path.name,
             "tiles": [
                 {
@@ -425,6 +429,7 @@ class MergeStore(AnnotationStore):
             )
         return {
             "mode": self.mode,
+            "workspace_mode": "consensus",
             "csv_name": self.csv_path.name,
             "reviewer_a_name": self.reviewer_a_path.name,
             "reviewer_b_name": self.reviewer_b_path.name,
@@ -552,6 +557,7 @@ class SingleFileMergeStore(AnnotationStore):
             )
         return {
             "mode": self.mode,
+            "workspace_mode": "single_file_consensus",
             "merge_layout": "single_file",
             "csv_name": self.csv_path.name,
             "reviewer_a_name": "reviewer_A_label_set",

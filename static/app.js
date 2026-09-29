@@ -15,6 +15,7 @@ const state = {
 
 const elements = {
   csvName: document.querySelector("#csv-name"),
+  workspaceMode: document.querySelector("#workspace-mode"),
   saveStatus: document.querySelector("#save-status"),
   previous: document.querySelector("#previous-button"),
   next: document.querySelector("#next-button"),
@@ -346,6 +347,13 @@ function applyStatePayload(payload) {
   state.reviewerANamed = payload.reviewer_a_name || "Reviewer A";
   state.reviewerBNamed = payload.reviewer_b_name || "Reviewer B";
   elements.csvName.textContent = state.mode === "merge" ? `合并输出：${payload.csv_name}` : payload.csv_name;
+  const workspaceMode = payload.workspace_mode || (state.mode === "merge" ? "consensus" : "review");
+  const modeText = {
+    review: `独立评审${payload.reviewer_role ? ` ${payload.reviewer_role}` : ""}`,
+    consensus: "共识裁决（A/B/共识三文件）",
+    single_file_consensus: "共识裁决（单文件）",
+  }[workspaceMode] || "工作区";
+  elements.workspaceMode.textContent = modeText;
 }
 
 async function autoMergeAndFilter() {
