@@ -46,9 +46,15 @@
           </fieldset>
 
           <div id="review-fields" class="workspace-fields">
-            <label for="review-csv">Reviewer CSV
+            <fieldset class="reviewer-selector">
+              <legend>评审人</legend>
+              <label><input type="radio" name="reviewer-person" value="a" checked /> 评审人 A</label>
+              <label><input type="radio" name="reviewer-person" value="b" /> 评审人 B</label>
+            </fieldset>
+            <label for="review-csv">工作 CSV
               <select id="review-csv"></select>
             </label>
+            <p id="review-target" class="target-file" aria-live="polite">目标文件：—</p>
           </div>
 
           <div id="consensus-fields" class="workspace-fields" hidden>

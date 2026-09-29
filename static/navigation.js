@@ -5,6 +5,7 @@ const elements = {
   phaseSummary: document.querySelector("#phase-summary"),
   status: document.querySelector("#navigation-status"),
   reviewFields: document.querySelector("#review-fields"),
+  reviewTarget: document.querySelector("#review-target"),
   consensusFields: document.querySelector("#consensus-fields"),
   singleConsensusFields: document.querySelector("#single-consensus-fields"),
   reviewCsv: document.querySelector("#review-csv"),
@@ -22,6 +23,17 @@ const elements = {
 
 function selectedMode() {
   return document.querySelector('input[name="workspace-mode"]:checked').value;
+}
+
+function selectedReviewer() {
+  return document.querySelector('input[name="reviewer-person"]:checked').value;
+}
+
+function reviewerForFile(name) {
+  const normalized = name.toLowerCase().replace(/[\s_-]/g, "");
+  if (normalized.startsWith("reviewera")) return "a";
+  if (normalized.startsWith("reviewerb")) return "b";
+  return "";
 }
 
 function setStatus(message, kind = "") {
@@ -79,7 +91,7 @@ function renderCatalog(catalog) {
   const reviewers = catalog.csv_files.filter((entry) => entry.kind === "reviewer");
   const consensus = catalog.csv_files.filter((entry) => entry.kind === "consensus_output");
   const single = catalog.csv_files.filter((entry) => entry.kind === "single_file_merge");
-  setOptions(elements.reviewCsv, reviewers);
+  updateReviewCsv();
   const aReviewers = reviewers.filter((entry) => /reviewer[_-]?a/i.test(entry.name));
   const bReviewers = reviewers.filter((entry) => /reviewer[_-]?b/i.test(entry.name));
   setOptions(elements.reviewerACsv, aReviewers.length ? aReviewers : reviewers, reviewers[0] && reviewers[0].name);
@@ -92,11 +104,24 @@ function renderCatalog(catalog) {
   void refreshLabelPreview();
 }
 
+function updateReviewCsv() {
+  const reviewers = (navState.catalog && navState.catalog.csv_files || []).filter((entry) => entry.kind === "reviewer");
+  const person = selectedReviewer();
+  const selectedBefore = elements.reviewCsv.value;
+  const matchingFiles = reviewers.filter((entry) => reviewerForFile(entry.name) === person);
+  setOptions(elements.reviewCsv, matchingFiles, selectedBefore);
+  const role = person.toUpperCase();
+  elements.reviewTarget.textContent = elements.reviewCsv.value
+    ? "当前将编辑：评审人 " + role + " · " + elements.reviewCsv.value
+    : "未找到评审人 " + role + " 的工作 CSV";
+}
+
 function updateModeFields() {
   const mode = selectedMode();
   elements.reviewFields.hidden = mode !== "review";
   elements.consensusFields.hidden = mode !== "consensus";
   elements.singleConsensusFields.hidden = mode !== "single_file_consensus";
+  if (mode === "review") updateReviewCsv();
 }
 
 async function refreshLabelPreview() {
@@ -172,6 +197,10 @@ async function loadNavigation() {
 for (const modeInput of document.querySelectorAll('input[name="workspace-mode"]')) {
   modeInput.addEventListener("change", updateModeFields);
 }
+for (const reviewerInput of document.querySelectorAll('input[name="reviewer-person"]')) {
+  reviewerInput.addEventListener("change", updateReviewCsv);
+}
+elements.reviewCsv.addEventListener("change", updateReviewCsv);
 elements.labelsCsv.addEventListener("change", () => void refreshLabelPreview());
 elements.openWorkspace.addEventListener("click", () => void openWorkspace());
 elements.refresh.addEventListener("click", () => void loadNavigation());
