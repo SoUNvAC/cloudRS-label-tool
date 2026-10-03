@@ -41,29 +41,36 @@
           <fieldset class="mode-selector">
             <legend>模式</legend>
             <label><input type="radio" name="workspace-mode" value="review" checked /> 独立评审</label>
-            <label><input type="radio" name="workspace-mode" value="consensus" /> 共识裁决（A/B/共识三文件）</label>
-            <label><input type="radio" name="workspace-mode" value="single_file_consensus" /> 共识裁决（单文件）</label>
+            <label><input type="radio" name="workspace-mode" value="consensus" /> 共识裁决</label>
           </fieldset>
 
-          <div id="review-fields" class="workspace-fields">
+          <div id="reviewer-role-fields" class="workspace-fields">
             <fieldset class="reviewer-selector">
               <legend>评审人</legend>
               <label><input type="radio" name="reviewer-person" value="a" checked /> 评审人 A</label>
               <label><input type="radio" name="reviewer-person" value="b" /> 评审人 B</label>
             </fieldset>
-            <label for="review-csv">工作 CSV
-              <select id="review-csv"></select>
-            </label>
-            <p id="review-target" class="target-file" aria-live="polite">目标文件：—</p>
           </div>
 
           <div id="consensus-fields" class="workspace-fields" hidden>
+            <fieldset class="reviewer-selector">
+              <legend>裁决方式</legend>
+              <label><input type="radio" name="consensus-layout" value="three_file" checked /> 模式 A：A/B/最终共识三文件</label>
+              <label><input type="radio" name="consensus-layout" value="single_file" /> 模式 B：单文件</label>
+            </fieldset>
+          </div>
+
+          <div id="reviewer-csv-fields" class="workspace-fields">
             <label for="reviewer-a-csv">Reviewer A CSV
               <select id="reviewer-a-csv"></select>
             </label>
             <label for="reviewer-b-csv">Reviewer B CSV
               <select id="reviewer-b-csv"></select>
             </label>
+            <p id="reviewer-csv-hint" class="target-file" aria-live="polite">—</p>
+          </div>
+
+          <div id="three-file-consensus-fields" class="workspace-fields" hidden>
             <label for="consensus-csv">最终共识 CSV
               <select id="consensus-csv"></select>
             </label>
@@ -75,14 +82,15 @@
             </label>
           </div>
 
-          <label for="labels-csv">label_set 配置
-            <select id="labels-csv"></select>
-          </label>
           <button id="open-workspace-button" class="primary open-workspace" type="button">进入工作区</button>
           <p class="keyboard-hint">导航页只选择工作文件和预览配置；写入只会发生在进入工作区后的保存操作。</p>
         </section>
 
         <section class="navigation-card label-preview-card">
+          <label class="label-config-selector" for="labels-csv">label_set 配置
+            <select id="labels-csv"></select>
+            <span id="label-source-path" class="hint">—</span>
+          </label>
           <div class="section-heading">
             <div>
               <h2>label_set 预览</h2>

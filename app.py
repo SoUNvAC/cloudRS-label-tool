@@ -37,6 +37,7 @@ SINGLE_FILE_MERGE_COLUMNS = (
     "rationale",
 )
 MAX_NOTES_LENGTH = 10_000
+PROJECT_DEFAULT_LABEL_SOURCE = "__project_default_label_set__"
 
 
 class UserFacingError(ValueError):
@@ -83,10 +84,11 @@ class AnnotationStore:
         notes_column: str = "notes",
         mode: str = "annotation",
         reviewer_role: str = "",
+        labels_path: Path | None = None,
     ) -> None:
         self.data_dir = data_dir.resolve()
         self.csv_path = self._safe_local_file(csv_name, suffix=".csv")
-        self.labels_path = self._safe_local_file(labels_name, suffix=".csv")
+        self.labels_path = labels_path.resolve() if labels_path is not None else self._safe_local_file(labels_name, suffix=".csv")
         self.label_column = label_column
         self.notes_column = notes_column
         self.mode = mode
@@ -98,6 +100,8 @@ class AnnotationStore:
 
         if not self.panels_dir.is_dir():
             raise UserFacingError(f"找不到图片目录：{self.panels_dir}")
+        if self.labels_path.suffix.lower() != ".csv" or not self.labels_path.is_file():
+            raise UserFacingError(f"找不到 label_set CSV：{self.labels_path}")
         self._validate_csv_layout(self.csv_path)
         self.read_labels()
 
@@ -345,6 +349,7 @@ class MergeStore(AnnotationStore):
         reviewer_b_name: str,
         consensus_name: str,
         labels_name: str,
+        labels_path: Path | None = None,
     ) -> None:
         data_path = data_dir.resolve()
         consensus_candidate = Path(consensus_name)
@@ -369,6 +374,7 @@ class MergeStore(AnnotationStore):
             label_column=label_column,
             notes_column="rule_or_counterexample",
             mode="merge",
+            labels_path=labels_path,
         )
         self.reviewer_a_path = self._safe_local_file(reviewer_a_name, suffix=".csv")
         self.reviewer_b_path = self._safe_local_file(reviewer_b_name, suffix=".csv")
@@ -520,7 +526,7 @@ class MergeStore(AnnotationStore):
 class SingleFileMergeStore(AnnotationStore):
     """Merge adjudication where both reviewer results and final fields share one CSV."""
 
-    def __init__(self, data_dir: Path, csv_name: str, labels_name: str) -> None:
+    def __init__(self, data_dir: Path, csv_name: str, labels_name: str, labels_path: Path | None = None) -> None:
         super().__init__(
             data_dir,
             csv_name,
@@ -528,6 +534,7 @@ class SingleFileMergeStore(AnnotationStore):
             label_column="final_label_set",
             notes_column="rationale",
             mode="merge",
+            labels_path=labels_path,
         )
         self._validate_single_file_layout()
 
@@ -643,9 +650,14 @@ class SingleFileMergeStore(AnnotationStore):
 class WorkspaceManager:
     """Keeps one locally selected phase workspace active for this web server."""
 
-    def __init__(self, data_dir: Path, default_labels: str) -> None:
+    def __init__(self, data_dir: Path, default_labels: str, fallback_labels_path: Path | None = None) -> None:
         self.data_dir = data_dir.resolve()
         self.default_labels = default_labels
+        self.fallback_labels_path = (
+            fallback_labels_path.resolve()
+            if fallback_labels_path is not None
+            else (Path(__file__).parent / Path(default_labels).name).resolve()
+        )
         self._store: AnnotationStore | None = None
         self._lock = threading.RLock()
         if not self.data_dir.is_dir():
@@ -683,20 +695,44 @@ class WorkspaceManager:
     def navigation(self) -> dict[str, Any]:
         entries = [self._catalog_entry(path) for path in sorted(self.data_dir.glob("*.csv"), key=lambda item: item.name.lower())]
         label_files = [entry["name"] for entry in entries if entry["kind"] == "label_config"]
-        default_labels = self.default_labels if self.default_labels in label_files else (label_files[0] if label_files else "")
+        if label_files:
+            default_labels = self.default_labels if self.default_labels in label_files else label_files[0]
+            label_sources = [
+                {"name": name, "display_name": name, "path": str((self.data_dir / name).resolve()), "is_default": False}
+                for name in label_files
+            ]
+        elif self.fallback_labels_path.is_file():
+            default_labels = PROJECT_DEFAULT_LABEL_SOURCE
+            label_sources = [{
+                "name": PROJECT_DEFAULT_LABEL_SOURCE,
+                "display_name": f"默认 {self.fallback_labels_path.name}（项目预设）",
+                "path": str(self.fallback_labels_path),
+                "is_default": True,
+            }]
+        else:
+            default_labels = ""
+            label_sources = []
         panels_dir = self.data_dir / "panels"
         panel_count = len(list(panels_dir.glob("*.png"))) if panels_dir.is_dir() else 0
         return {
             "data_dir": str(self.data_dir),
             "csv_files": entries,
             "label_files": label_files,
+            "label_sources": label_sources,
             "default_labels": default_labels,
             "panel_count": panel_count,
             "active": self._store is not None,
         }
 
+    def _labels_path(self, labels_name: Any) -> tuple[Path, bool]:
+        if labels_name == PROJECT_DEFAULT_LABEL_SOURCE:
+            if not self.fallback_labels_path.is_file():
+                raise UserFacingError("目标目录没有 label_set，项目预设 label_set.csv 也不存在")
+            return self.fallback_labels_path, True
+        return self._safe_csv_path(labels_name), False
+
     def label_preview(self, labels_name: Any) -> dict[str, Any]:
-        path = self._safe_csv_path(labels_name)
+        path, is_default = self._labels_path(labels_name)
         fieldnames, rows = AnnotationStore._read_csv(path)
         if "label" not in fieldnames:
             raise UserFacingError(f"{path.name} 不是 label_set 配置文件")
@@ -710,11 +746,12 @@ class WorkspaceManager:
             for row in rows
             if row.get("label", "").strip()
         ]
-        return {"name": path.name, "labels": preview}
+        return {"name": path.name, "path": str(path), "is_default": is_default, "labels": preview}
 
     def activate(self, payload: dict[str, Any]) -> dict[str, Any]:
         mode = payload.get("mode")
         labels = payload.get("labels", self.default_labels)
+        labels_path, _ = self._labels_path(labels)
         with self._lock:
             if mode == "review":
                 reviewer_role = payload.get("reviewer_role", "")
@@ -725,6 +762,7 @@ class WorkspaceManager:
                     payload.get("csv"),
                     labels,
                     reviewer_role=reviewer_role,
+                    labels_path=labels_path,
                 )
             elif mode == "consensus":
                 store = MergeStore(
@@ -733,9 +771,10 @@ class WorkspaceManager:
                     payload.get("reviewer_b"),
                     payload.get("consensus"),
                     labels,
+                    labels_path=labels_path,
                 )
             elif mode == "single_file_consensus":
-                store = SingleFileMergeStore(self.data_dir, payload.get("csv"), labels)
+                store = SingleFileMergeStore(self.data_dir, payload.get("csv"), labels, labels_path=labels_path)
             else:
                 raise UserFacingError("请选择独立评审、共识裁决或单文件共识裁决模式")
             self._store = store

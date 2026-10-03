@@ -25,9 +25,9 @@ python app.py --data-dir D:\path\to\phase-xxx --open-browser
 
 首页会显示 CSV 清单、记录数、PNG 数量和 `label_set` 预览。选择模式和 CSV 后才进入工作区：
 
-- **独立评审**：先指定评审人 A 或 B，再手动选择工作 CSV；下拉框不依赖文件名，允许选择 reviewer 或“其他 CSV”。进入前会校验 `tile_id`、`label_set`、`notes` 三列。
-- **共识裁决（三文件）**：A CSV、B CSV、最终共识 CSV 都由你手动选择，三个下拉框均不依赖文件名；A/B 必须是不同文件，且其 `tile_id` 与顺序一致。最终共识下拉框也可选择“其他 CSV”，标签列可使用 `agreed_label_set` 或 `consensus_label_set`。
-- **共识裁决（单文件）**：选择同时含 A/B/final 字段的单文件。
+- **独立评审**：选择评审人 A 或 B，并分别配置 Reviewer A CSV、Reviewer B CSV；进入时只打开并写入当前选中评审人的 CSV。若恰好匹配一份 `reviewer_a_*.csv` 或 `reviewer_b_*.csv`，程序会自动填入；零份或多份匹配时会留空，要求手动选择。
+- **共识裁决**：模式 A 使用 Reviewer A CSV、Reviewer B CSV、最终共识 CSV 三个文件；模式 B 使用单文件合并 CSV。所有 CSV 都允许手动选择，A/B 必须不同且 `tile_id` 与顺序一致。最终共识标签列可使用 `agreed_label_set` 或 `consensus_label_set`。
+- **label_set 配置**：在目标目录优先读取 label_set；若没有，会使用项目内预设 `label_set.csv`，页面会显示默认数据提示与实际文件路径。
 
 PNG 始终通过 `panels/<tile_id>.png` 查找，因此 CSV 内的编号可跳跃。终端会显示浏览器地址；按 `Ctrl+C` 停止服务。
 

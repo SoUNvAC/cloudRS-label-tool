@@ -1,19 +1,21 @@
-const navState = { catalog: null };
+const navState = { catalog: null, reviewerCandidates: [] };
 
 const elements = {
   phaseRoot: document.querySelector("#phase-root"),
   phaseSummary: document.querySelector("#phase-summary"),
   status: document.querySelector("#navigation-status"),
-  reviewFields: document.querySelector("#review-fields"),
-  reviewTarget: document.querySelector("#review-target"),
+  reviewerRoleFields: document.querySelector("#reviewer-role-fields"),
+  reviewerCsvFields: document.querySelector("#reviewer-csv-fields"),
+  reviewerCsvHint: document.querySelector("#reviewer-csv-hint"),
   consensusFields: document.querySelector("#consensus-fields"),
+  threeFileConsensusFields: document.querySelector("#three-file-consensus-fields"),
   singleConsensusFields: document.querySelector("#single-consensus-fields"),
-  reviewCsv: document.querySelector("#review-csv"),
   reviewerACsv: document.querySelector("#reviewer-a-csv"),
   reviewerBCsv: document.querySelector("#reviewer-b-csv"),
   consensusCsv: document.querySelector("#consensus-csv"),
   singleConsensusCsv: document.querySelector("#single-consensus-csv"),
   labelsCsv: document.querySelector("#labels-csv"),
+  labelSourcePath: document.querySelector("#label-source-path"),
   openWorkspace: document.querySelector("#open-workspace-button"),
   refresh: document.querySelector("#refresh-navigation-button"),
   labelPreview: document.querySelector("#label-preview"),
@@ -29,6 +31,10 @@ function selectedReviewer() {
   return document.querySelector('input[name="reviewer-person"]:checked').value;
 }
 
+function selectedConsensusLayout() {
+  return document.querySelector('input[name="consensus-layout"]:checked').value;
+}
+
 function setStatus(message, kind = "") {
   elements.status.textContent = message;
   elements.status.className = "save-status " + kind;
@@ -41,7 +47,7 @@ function makeOption(name, label = name) {
   return option;
 }
 
-function setOptions(select, entries, preferred = "") {
+function setOptions(select, entries, preferred = "", allowEmpty = false) {
   select.replaceChildren();
   if (!entries.length) {
     select.append(makeOption("", "没有可用文件"));
@@ -49,8 +55,9 @@ function setOptions(select, entries, preferred = "") {
     return;
   }
   select.disabled = false;
+  if (allowEmpty) select.append(makeOption("", "请手动选择"));
   for (const entry of entries) select.append(makeOption(entry.name, entry.displayName || entry.name));
-  select.value = entries.some((entry) => entry.name === preferred) ? preferred : entries[0].name;
+  select.value = entries.some((entry) => entry.name === preferred) ? preferred : (allowEmpty ? "" : entries[0].name);
 }
 
 function displayKind(kind) {
@@ -77,6 +84,20 @@ function renderInventory(entries) {
   }
 }
 
+function uniqueReviewerMatch(entries, role) {
+  const pattern = new RegExp("^reviewer[_-]" + role + "[_-].+\\.csv$", "i");
+  const matches = entries.filter((entry) => pattern.test(entry.name));
+  return matches.length === 1 ? matches[0].name : "";
+}
+
+function updateReviewerCsvHint() {
+  const role = selectedReviewer().toUpperCase();
+  const selected = role === "A" ? elements.reviewerACsv.value : elements.reviewerBCsv.value;
+  elements.reviewerCsvHint.textContent = selected
+    ? "当前工作目标：独立评审 " + role + " · " + selected
+    : "请为评审人 " + role + " 选择对应 CSV";
+}
+
 function renderCatalog(catalog) {
   navState.catalog = catalog;
   elements.phaseRoot.textContent = catalog.data_dir;
@@ -85,63 +106,49 @@ function renderCatalog(catalog) {
   const consensus = catalog.csv_files.filter((entry) => entry.kind === "consensus_output");
   const other = catalog.csv_files.filter((entry) => entry.kind === "other");
   const single = catalog.csv_files.filter((entry) => entry.kind === "single_file_merge");
-  const reviewerCandidates = [
+  navState.reviewerCandidates = [
     ...reviewers,
     ...other.map((entry) => ({ ...entry, displayName: entry.name + "（其他 CSV）" })),
   ];
-  updateReviewCsv();
-  setOptions(elements.reviewerACsv, reviewerCandidates);
-  setOptions(
-    elements.reviewerBCsv,
-    reviewerCandidates,
-    reviewerCandidates.find((entry) => entry.name !== elements.reviewerACsv.value)?.name || ""
-  );
-  setOptions(elements.consensusCsv, [
+  const previousA = elements.reviewerACsv.value;
+  const previousB = elements.reviewerBCsv.value;
+  setOptions(elements.reviewerACsv, navState.reviewerCandidates, previousA || uniqueReviewerMatch(navState.reviewerCandidates, "a"), true);
+  setOptions(elements.reviewerBCsv, navState.reviewerCandidates, previousB || uniqueReviewerMatch(navState.reviewerCandidates, "b"), true);
+  const consensusCandidates = [
     ...consensus,
     ...other.map((entry) => ({ ...entry, displayName: entry.name + "（其他 CSV）" })),
-  ]);
-  setOptions(elements.singleConsensusCsv, single);
-  setOptions(elements.labelsCsv, catalog.label_files.map((name) => ({ name })), catalog.default_labels);
+  ];
+  const preferredConsensus = consensusCandidates.find((entry) => /^calibration_consensus\.csv$/i.test(entry.name))?.name || "";
+  setOptions(elements.consensusCsv, consensusCandidates, elements.consensusCsv.value || preferredConsensus, true);
+  setOptions(elements.singleConsensusCsv, single, elements.singleConsensusCsv.value, true);
+  setOptions(
+    elements.labelsCsv,
+    (catalog.label_sources || []).map((source) => ({ name: source.name, displayName: source.display_name })),
+    catalog.default_labels
+  );
   renderInventory(catalog.csv_files);
   updateModeFields();
+  updateReviewerCsvHint();
   void refreshLabelPreview();
 }
 
-function updateReviewCsv() {
-  const entries = (navState.catalog && navState.catalog.csv_files || []);
-  const reviewers = entries.filter((entry) => entry.kind === "reviewer");
-  const person = selectedReviewer();
-  const selectedBefore = elements.reviewCsv.value;
-  const matchingFiles = [
-    ...reviewers,
-    ...entries.filter((entry) => entry.kind === "other").map((entry) => ({
-      ...entry,
-      displayName: entry.name + "（其他 CSV）",
-    })),
-  ];
-  setOptions(elements.reviewCsv, matchingFiles, selectedBefore);
-  const role = person.toUpperCase();
-  const selectedEntry = entries.find((entry) => entry.name === elements.reviewCsv.value);
-  elements.reviewTarget.textContent = elements.reviewCsv.value
-    ? selectedEntry?.kind === "other"
-      ? "当前将编辑：" + elements.reviewCsv.value + "（其他 CSV；进入前会校验可标注列）"
-      : "当前将编辑：评审人 " + role + " · " + elements.reviewCsv.value
-    : "未找到评审人 " + role + " 的工作 CSV";
-}
-
 function updateModeFields() {
-  const mode = selectedMode();
-  elements.reviewFields.hidden = mode !== "review";
-  elements.consensusFields.hidden = mode !== "consensus";
-  elements.singleConsensusFields.hidden = mode !== "single_file_consensus";
-  if (mode === "review") updateReviewCsv();
+  const isReview = selectedMode() === "review";
+  const threeFileConsensus = !isReview && selectedConsensusLayout() === "three_file";
+  elements.reviewerRoleFields.hidden = !isReview;
+  elements.consensusFields.hidden = isReview;
+  elements.reviewerCsvFields.hidden = !isReview && !threeFileConsensus;
+  elements.reviewerCsvHint.hidden = !isReview;
+  elements.threeFileConsensusFields.hidden = !threeFileConsensus;
+  elements.singleConsensusFields.hidden = isReview || threeFileConsensus;
 }
 
 async function refreshLabelPreview() {
   const name = elements.labelsCsv.value;
   if (!name) {
     elements.labelPreview.replaceChildren();
-    elements.labelPreviewSummary.textContent = "未找到 label_set CSV";
+    elements.labelPreviewSummary.textContent = "未找到可用的 label_set CSV";
+    elements.labelSourcePath.textContent = "未配置 label_set";
     return;
   }
   try {
@@ -160,26 +167,38 @@ async function refreshLabelPreview() {
       elements.labelPreview.append(card);
     }
     elements.labelPreviewSummary.textContent = payload.name + " · " + payload.labels.length + " 个标签";
+    elements.labelSourcePath.textContent = (payload.is_default ? "未在目标目录下发现 label set，采用默认数据 · " : "目标目录 label_set · ") + payload.path;
+    elements.labelSourcePath.className = "hint" + (payload.is_default ? " default-label-notice" : "");
   } catch (error) {
     elements.labelPreviewSummary.textContent = "预览失败：" + error.message;
   }
 }
 
+function requiredSelection(select, label) {
+  if (!select.value) throw new Error("请先选择“" + label + "”");
+  return select.value;
+}
+
 async function openWorkspace() {
-  const mode = selectedMode();
-  const payload = { mode, labels: elements.labelsCsv.value };
-  if (mode === "review") {
-    payload.csv = elements.reviewCsv.value;
-    payload.reviewer_role = selectedReviewer().toUpperCase();
-  }
-  if (mode === "consensus") {
-    payload.reviewer_a = elements.reviewerACsv.value;
-    payload.reviewer_b = elements.reviewerBCsv.value;
-    payload.consensus = elements.consensusCsv.value;
-  }
-  if (mode === "single_file_consensus") payload.csv = elements.singleConsensusCsv.value;
   elements.openWorkspace.disabled = true;
   try {
+    const labels = requiredSelection(elements.labelsCsv, "label_set 配置");
+    let payload;
+    if (selectedMode() === "review") {
+      const role = selectedReviewer().toUpperCase();
+      const csv = requiredSelection(role === "A" ? elements.reviewerACsv : elements.reviewerBCsv, "Reviewer " + role + " CSV");
+      payload = { mode: "review", labels, csv, reviewer_role: role };
+    } else if (selectedConsensusLayout() === "three_file") {
+      payload = {
+        mode: "consensus",
+        labels,
+        reviewer_a: requiredSelection(elements.reviewerACsv, "Reviewer A CSV"),
+        reviewer_b: requiredSelection(elements.reviewerBCsv, "Reviewer B CSV"),
+        consensus: requiredSelection(elements.consensusCsv, "最终共识 CSV"),
+      };
+    } else {
+      payload = { mode: "single_file_consensus", labels, csv: requiredSelection(elements.singleConsensusCsv, "单文件合并 CSV") };
+    }
     setStatus("正在验证并打开工作区…", "saving");
     const response = await fetch("/api/workspace", {
       method: "POST",
@@ -213,10 +232,14 @@ async function loadNavigation() {
 for (const modeInput of document.querySelectorAll('input[name="workspace-mode"]')) {
   modeInput.addEventListener("change", updateModeFields);
 }
-for (const reviewerInput of document.querySelectorAll('input[name="reviewer-person"]')) {
-  reviewerInput.addEventListener("change", updateReviewCsv);
+for (const layoutInput of document.querySelectorAll('input[name="consensus-layout"]')) {
+  layoutInput.addEventListener("change", updateModeFields);
 }
-elements.reviewCsv.addEventListener("change", updateReviewCsv);
+for (const reviewerInput of document.querySelectorAll('input[name="reviewer-person"]')) {
+  reviewerInput.addEventListener("change", updateReviewerCsvHint);
+}
+elements.reviewerACsv.addEventListener("change", updateReviewerCsvHint);
+elements.reviewerBCsv.addEventListener("change", updateReviewerCsvHint);
 elements.labelsCsv.addEventListener("change", () => void refreshLabelPreview());
 elements.openWorkspace.addEventListener("click", () => void openWorkspace());
 elements.refresh.addEventListener("click", () => void loadNavigation());

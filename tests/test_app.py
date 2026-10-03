@@ -4,7 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app import AnnotationStore, MergeStore, SingleFileMergeStore, UserFacingError, WorkspaceManager
+from app import (
+    PROJECT_DEFAULT_LABEL_SOURCE,
+    AnnotationStore,
+    MergeStore,
+    SingleFileMergeStore,
+    UserFacingError,
+    WorkspaceManager,
+)
 
 
 LABELS = """label,description,multi_selectable,exclusive,allowed_with
@@ -214,6 +221,31 @@ class AnnotationStoreTests(unittest.TestCase):
             {"mode": "single_file_consensus", "csv": "single_merge.csv", "labels": "label_set.csv"}
         )
         self.assertEqual("single_file", single_state["merge_layout"])
+
+    def test_workspace_uses_project_default_labels_when_phase_has_none(self):
+        (self.root / "label_set.csv").unlink()
+        fallback_path = self.root / "preset" / "label_set.csv"
+        fallback_path.parent.mkdir()
+        fallback_path.write_text(LABELS, encoding="utf-8")
+        manager = WorkspaceManager(self.root, "label_set.csv", fallback_labels_path=fallback_path)
+
+        catalog = manager.navigation()
+        self.assertEqual(PROJECT_DEFAULT_LABEL_SOURCE, catalog["default_labels"])
+        self.assertTrue(catalog["label_sources"][0]["is_default"])
+        preview = manager.label_preview(PROJECT_DEFAULT_LABEL_SOURCE)
+        self.assertTrue(preview["is_default"])
+        self.assertEqual(str(fallback_path.resolve()), preview["path"])
+
+        state = manager.activate(
+            {
+                "mode": "review",
+                "csv": "reviewer.csv",
+                "labels": PROJECT_DEFAULT_LABEL_SOURCE,
+                "reviewer_role": "B",
+            }
+        )
+        self.assertEqual("B", state["reviewer_role"])
+        self.assertEqual("clear", state["labels"][0]["label"])
 
 
 if __name__ == "__main__":

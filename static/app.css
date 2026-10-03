@@ -182,9 +182,12 @@ textarea:focus { outline: 2px solid #2478aa; outline-offset: 1px; }
 .mode-guide { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .mode-guide span { padding: 6px 8px; border: 1px solid #40566a; border-radius: 99px; color: #c8d7e4; font-size: 12px; }
 .navigation-grid { display: grid; grid-template-columns: minmax(380px, .9fr) minmax(420px, 1.1fr); gap: 16px; }
-.workspace-selector > label, .workspace-fields > label { display: block; color: #dbe7f0; font-size: 14px; font-weight: 600; }
-.workspace-selector select { display: block; width: 100%; margin-top: 7px; color: #edf2f7; background: #111820; border: 1px solid #3c4b5b; border-radius: 7px; padding: 9px; }
+.workspace-selector > label, .workspace-fields > label, .label-config-selector { display: block; color: #dbe7f0; font-size: 14px; font-weight: 600; }
+.workspace-selector select, .label-config-selector select { display: block; width: 100%; margin-top: 7px; color: #edf2f7; background: #111820; border: 1px solid #3c4b5b; border-radius: 7px; padding: 9px; }
 .workspace-fields { display: grid; gap: 12px; margin: 13px 0; }
+.label-config-selector { margin-bottom: 18px; }
+.label-config-selector .hint { display: block; margin-top: 7px; font-weight: 400; overflow-wrap: anywhere; }
+.default-label-notice { padding: 8px 10px; border-left: 3px solid #d4a33a; border-radius: 4px; color: #ffd98d; background: #382f1d; }
 .reviewer-selector { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; padding: 10px 12px; border: 1px solid #3a4c5e; border-radius: 8px; }
 .reviewer-selector legend { padding: 0 5px; color: #aebdca; font-size: 12px; }
 .reviewer-selector label { display: flex; align-items: center; gap: 7px; color: #d9e5ee; font-size: 14px; cursor: pointer; }
