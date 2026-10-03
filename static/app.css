@@ -83,12 +83,12 @@ h2 { font-size: 17px; }
   padding: 8px 12px;
   border-bottom: 1px solid #2d3a48;
 }
-.viewer-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; }
+.viewer-toolbar { display: grid; grid-template-columns: auto minmax(16px, 1fr) max-content auto max-content minmax(16px, 1fr) auto; align-items: center; }
 .viewer-toolbar > .button-group:first-child { grid-column: 1; }
-.reviewer-a-card { grid-column: 2; }
-.position-block { grid-column: 3; }
-.reviewer-b-card { grid-column: 4; }
-.viewer-toolbar > .button-group:last-child { grid-column: 5; }
+.reviewer-a-card { grid-column: 3; }
+.position-block { grid-column: 4; }
+.reviewer-b-card { grid-column: 5; }
+.viewer-toolbar > .button-group:last-child { grid-column: 7; }
 .tile-footer { display: flex; align-items: center; justify-content: space-between; }
 .tile-footer { border-top: 1px solid #2d3a48; border-bottom: 0; font-family: Consolas, monospace; font-size: 12px; }
 .button-group { display: flex; gap: 6px; }
@@ -132,7 +132,7 @@ h2 { font-size: 17px; }
 .reviewer-card h3 { margin: 0 0 7px; font-size: 13px; color: #d8e3ed; }
 .reviewer-label { margin: 0; color: #f2f7fb; font-family: Consolas, "Cascadia Code", monospace; font-size: 13px; overflow-wrap: anywhere; }
 .reviewer-notes { margin: 7px 0 0; color: #aebdca; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; }
-.reviewer-toolbar-card { min-width: 0; padding: 6px 8px; }
+.reviewer-toolbar-card { min-width: 0; max-width: min(220px, 22vw); padding: 6px 8px; }
 .reviewer-toolbar-card h3 { margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .reviewer-toolbar-card .reviewer-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .reviewer-toolbar-card .reviewer-notes { display: none; }
