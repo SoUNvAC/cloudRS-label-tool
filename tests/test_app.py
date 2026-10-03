@@ -95,6 +95,27 @@ class AnnotationStoreTests(unittest.TestCase):
         self.assertEqual("kept", consensus[0]["extra"])
         self.assertIn("haze_cirrus", (self.root / "reviewer_B_calibration.csv").read_text(encoding="utf-8"))
 
+    def test_merge_accepts_consensus_label_set_column(self):
+        self.create_merge_files()
+        (self.root / "calibration_consensus.csv").write_text(
+            "tile_id,consensus_label_set,rule_or_counterexample\ntile-1,,,\ntile-2,,,\n",
+            encoding="utf-8",
+        )
+        catalog = WorkspaceManager(self.root, "label_set.csv").navigation()
+        kinds = {entry["name"]: entry["kind"] for entry in catalog["csv_files"]}
+        self.assertEqual("consensus_output", kinds["calibration_consensus.csv"])
+        store = MergeStore(
+            self.root,
+            "reviewer_A_calibration.csv",
+            "reviewer_B_calibration.csv",
+            "calibration_consensus.csv",
+            "label_set.csv",
+        )
+        store.save("tile-1", ["thin_cloud"], "Panel decision", "manual")
+        with (self.root / "calibration_consensus.csv").open(encoding="utf-8", newline="") as handle:
+            consensus = list(csv.DictReader(handle))
+        self.assertEqual("thin_cloud", consensus[0]["consensus_label_set"])
+
     def test_merge_rejects_reviewer_tile_order_mismatch(self):
         self.create_merge_files(reviewer_b_tile_order="tile-2,tile-1")
         with self.assertRaisesRegex(UserFacingError, "记录顺序不一致"):

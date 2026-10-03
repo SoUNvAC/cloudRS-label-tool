@@ -26,7 +26,7 @@ python app.py --data-dir D:\path\to\phase-xxx --open-browser
 首页会显示 CSV 清单、记录数、PNG 数量和 `label_set` 预览。选择模式和 CSV 后才进入工作区：
 
 - **独立评审**：选择 A 或 B 后，工作 CSV 下拉框会列出对应 reviewer CSV，也允许直接选择识别为“其他 CSV”的文件；进入前会校验 `tile_id`、`label_set`、`notes` 三列。
-- **共识裁决（三文件）**：选择 A calibration、B calibration、`calibration_consensus.csv`，完成共同裁决。
+- **共识裁决（三文件）**：选择 A calibration、B calibration、`calibration_consensus.csv`，完成共同裁决；最终标签列可使用 `agreed_label_set` 或 `consensus_label_set`。
 - **共识裁决（单文件）**：选择同时含 A/B/final 字段的单文件。
 
 PNG 始终通过 `panels/<tile_id>.png` 查找，因此 CSV 内的编号可跳跃。终端会显示浏览器地址；按 `Ctrl+C` 停止服务。

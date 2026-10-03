@@ -28,6 +28,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 REVIEWER_COLUMNS = ("tile_id", "label_set", "notes")
 CONSENSUS_COLUMNS = ("tile_id", "agreed_label_set", "rule_or_counterexample")
+CONSENSUS_LABEL_COLUMNS = ("agreed_label_set", "consensus_label_set")
+CONSENSUS_BASE_COLUMNS = ("tile_id", "rule_or_counterexample")
 SINGLE_FILE_MERGE_COLUMNS = (
     "tile_id",
     "reviewer_A_label_set",
@@ -341,11 +343,27 @@ class MergeStore(AnnotationStore):
         consensus_name: str,
         labels_name: str,
     ) -> None:
+        data_path = data_dir.resolve()
+        consensus_candidate = Path(consensus_name)
+        if (
+            consensus_candidate.is_absolute()
+            or consensus_candidate.name != consensus_name
+            or consensus_candidate.suffix.lower() != ".csv"
+        ):
+            raise UserFacingError(f"只接受数据目录根部的 .csv 文件名：{consensus_name!r}")
+        consensus_path = (data_path / consensus_candidate).resolve()
+        if consensus_path.parent != data_path or not consensus_path.is_file():
+            raise UserFacingError(f"找不到文件：{consensus_candidate}")
+        consensus_fields, _ = self._read_csv(consensus_path)
+        label_column = next((column for column in CONSENSUS_LABEL_COLUMNS if column in consensus_fields), None)
+        if label_column is None:
+            expected = " 或 ".join(CONSENSUS_LABEL_COLUMNS)
+            raise UserFacingError(f"{consensus_path.name} 缺少最终共识标签列：{expected}")
         super().__init__(
             data_dir,
             consensus_name,
             labels_name,
-            label_column="agreed_label_set",
+            label_column=label_column,
             notes_column="rule_or_counterexample",
             mode="merge",
         )
@@ -649,7 +667,9 @@ class WorkspaceManager:
                 kind = "label_config"
             elif set(SINGLE_FILE_MERGE_COLUMNS).issubset(fields):
                 kind = "single_file_merge"
-            elif set(CONSENSUS_COLUMNS).issubset(fields):
+            elif set(CONSENSUS_BASE_COLUMNS).issubset(fields) and any(
+                column in fields for column in CONSENSUS_LABEL_COLUMNS
+            ):
                 kind = "consensus_output"
             elif set(REVIEWER_COLUMNS).issubset(fields):
                 kind = "reviewer"
