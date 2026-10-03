@@ -56,7 +56,7 @@ function setOptions(select, entries, preferred = "") {
     return;
   }
   select.disabled = false;
-  for (const entry of entries) select.append(makeOption(entry.name));
+  for (const entry of entries) select.append(makeOption(entry.name, entry.displayName || entry.name));
   select.value = entries.some((entry) => entry.name === preferred) ? preferred : entries[0].name;
 }
 
@@ -109,19 +109,20 @@ function updateReviewCsv() {
   const reviewers = entries.filter((entry) => entry.kind === "reviewer");
   const person = selectedReviewer();
   const selectedBefore = elements.reviewCsv.value;
-  const matchingFiles = person === "manual"
-    ? entries.filter((entry) => entry.kind === "other")
-    : reviewers.filter((entry) => reviewerForFile(entry.name) === person);
+  const matchingFiles = [
+    ...reviewers.filter((entry) => reviewerForFile(entry.name) === person),
+    ...entries.filter((entry) => entry.kind === "other").map((entry) => ({
+      ...entry,
+      displayName: entry.name + "（其他 CSV）",
+    })),
+  ];
   setOptions(elements.reviewCsv, matchingFiles, selectedBefore);
-  if (person === "manual") {
-    elements.reviewTarget.textContent = elements.reviewCsv.value
-      ? "当前将编辑：手动选择 · " + elements.reviewCsv.value + "（其他 CSV；进入前会校验可标注列）"
-      : "未找到可手动选择的其他 CSV";
-    return;
-  }
   const role = person.toUpperCase();
+  const selectedEntry = entries.find((entry) => entry.name === elements.reviewCsv.value);
   elements.reviewTarget.textContent = elements.reviewCsv.value
-    ? "当前将编辑：评审人 " + role + " · " + elements.reviewCsv.value
+    ? selectedEntry?.kind === "other"
+      ? "当前将编辑：" + elements.reviewCsv.value + "（其他 CSV；进入前会校验可标注列）"
+      : "当前将编辑：评审人 " + role + " · " + elements.reviewCsv.value
     : "未找到评审人 " + role + " 的工作 CSV";
 }
 
