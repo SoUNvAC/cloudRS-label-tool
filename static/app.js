@@ -25,7 +25,8 @@ const elements = {
   agreementQueueControls: document.querySelector("#agreement-queue-controls"),
   skipAgreements: document.querySelector("#skip-agreements-toggle"),
   agreementQueueHint: document.querySelector("#agreement-queue-hint"),
-  reviewerComparison: document.querySelector("#reviewer-comparison"),
+  reviewerACard: document.querySelector("#reviewer-a-card"),
+  reviewerBCard: document.querySelector("#reviewer-b-card"),
   reviewerAgreement: document.querySelector("#reviewer-agreement"),
   reviewerAName: document.querySelector("#reviewer-a-name"),
   reviewerBName: document.querySelector("#reviewer-b-name"),
@@ -104,7 +105,9 @@ function reviewerLabelsMatch(reviewerA, reviewerB) {
 
 function renderReviewerComparison(tile, autoApplied = false) {
   const isMerge = state.mode === "merge";
-  elements.reviewerComparison.hidden = !isMerge;
+  elements.reviewerACard.hidden = !isMerge;
+  elements.reviewerBCard.hidden = !isMerge;
+  elements.reviewerAgreement.hidden = !isMerge;
   elements.agreementQueueControls.hidden = !isMerge;
   elements.labelHeading.textContent = isMerge ? "最终共识 label_set" : "label_set";
   elements.labelSubtitle.textContent = isMerge ? "评审团裁决；只会写入最终共识文件" : "当前图的标签与备注";
@@ -120,6 +123,8 @@ function renderReviewerComparison(tile, autoApplied = false) {
   elements.reviewerBLabel.textContent = displayReviewerValue(reviewerB.label_set);
   elements.reviewerANotes.textContent = displayReviewerValue(reviewerA.notes, "（无 notes）");
   elements.reviewerBNotes.textContent = displayReviewerValue(reviewerB.notes, "（无 notes）");
+  elements.reviewerACard.title = reviewerA.notes.trim() ? `Reviewer A notes：${reviewerA.notes}` : "Reviewer A 无 notes";
+  elements.reviewerBCard.title = reviewerB.notes.trim() ? `Reviewer B notes：${reviewerB.notes}` : "Reviewer B 无 notes";
   const agreed = Boolean(tile.reviewer_agreement_label_set);
   const rawAgreement = reviewerLabelsMatch(reviewerA.label_set, reviewerB.label_set);
   if (agreed) {

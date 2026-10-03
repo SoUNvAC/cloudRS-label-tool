@@ -79,13 +79,17 @@ h2 { font-size: 17px; }
 .viewer-toolbar, .tile-footer {
   flex: 0 0 auto;
   min-height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid #2d3a48;
 }
+.viewer-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; }
+.viewer-toolbar > .button-group:first-child { grid-column: 1; }
+.reviewer-a-card { grid-column: 2; }
+.position-block { grid-column: 3; }
+.reviewer-b-card { grid-column: 4; }
+.viewer-toolbar > .button-group:last-child { grid-column: 5; }
+.tile-footer { display: flex; align-items: center; justify-content: space-between; }
 .tile-footer { border-top: 1px solid #2d3a48; border-bottom: 0; font-family: Consolas, monospace; font-size: 12px; }
 .button-group { display: flex; gap: 6px; }
 
@@ -122,15 +126,19 @@ h2 { font-size: 17px; }
 .agreement-queue-controls { margin: -2px 0 16px; padding: 0 0 13px; border-bottom: 1px solid #3a4959; }
 .agreement-queue-controls .toggle-row { margin: 0 0 5px; font-weight: 600; }
 .agreement-queue-controls .hint { margin: 0; }
-.reviewer-comparison { margin: -2px 0 20px; padding-bottom: 18px; border-bottom: 1px solid #3a4959; }
-.comparison-heading { margin-bottom: 10px; }
-.reviewer-grid { display: grid; gap: 9px; }
 .reviewer-card { padding: 10px; border: 1px solid #46596d; border-left-width: 4px; border-radius: 7px; background: #202b37; }
 .reviewer-a-card { border-left-color: #3da6df; }
 .reviewer-b-card { border-left-color: #b98be5; }
 .reviewer-card h3 { margin: 0 0 7px; font-size: 13px; color: #d8e3ed; }
 .reviewer-label { margin: 0; color: #f2f7fb; font-family: Consolas, "Cascadia Code", monospace; font-size: 13px; overflow-wrap: anywhere; }
 .reviewer-notes { margin: 7px 0 0; color: #aebdca; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; }
+.reviewer-toolbar-card { min-width: 0; padding: 6px 8px; }
+.reviewer-toolbar-card h3 { margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.reviewer-toolbar-card .reviewer-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.reviewer-toolbar-card .reviewer-notes { display: none; }
+.position-block { min-width: 64px; text-align: center; }
+.position-block #position { display: block; white-space: nowrap; }
+.position-block #reviewer-agreement { max-width: 180px; margin: 3px auto 0; font-size: 10px; line-height: 1.2; }
 .panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
 .toggle-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer; }
 .toggle-row input { width: 16px; height: 16px; accent-color: #228cc9; }
@@ -208,4 +216,15 @@ tbody tr:last-child td { border-bottom: 0; }
   .navigation-header, .phase-overview, .section-heading { align-items: flex-start; flex-direction: column; }
   .navigation-grid { grid-template-columns: 1fr; }
   .mode-guide { justify-content: flex-start; }
+}
+
+@media (max-width: 740px) {
+  .viewer-toolbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto; }
+  .viewer-toolbar > .button-group:first-child { grid-column: 1; grid-row: 1; justify-self: start; }
+  .viewer-toolbar > .button-group:last-child { grid-column: 3; grid-row: 1; justify-self: end; }
+  .reviewer-a-card { grid-column: 1; grid-row: 2; }
+  .position-block { grid-column: 2; grid-row: 2; }
+  .reviewer-b-card { grid-column: 3; grid-row: 2; }
+  .viewer-toolbar .button-group { gap: 4px; }
+  .viewer-toolbar .button-group button { padding: 6px 7px; font-size: 12px; }
 }
