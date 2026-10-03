@@ -134,7 +134,7 @@ h2 { font-size: 17px; }
 .reviewer-notes { margin: 7px 0 0; color: #aebdca; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; }
 .reviewer-toolbar-card { min-width: 0; max-width: min(220px, 22vw); padding: 6px 8px; }
 .reviewer-toolbar-card h3 { margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.reviewer-toolbar-card .reviewer-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.reviewer-toolbar-card .reviewer-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
 .reviewer-toolbar-card .reviewer-notes { display: none; }
 .position-block { min-width: 64px; text-align: center; }
 .position-block #position { display: block; white-space: nowrap; }
