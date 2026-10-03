@@ -195,8 +195,11 @@ class AnnotationStoreTests(unittest.TestCase):
         self.assertEqual(1, catalog["panel_count"])
         self.assertEqual("clear", manager.label_preview("label_set.csv")["labels"][0]["label"])
 
-        review_state = manager.activate({"mode": "review", "csv": "reviewer.csv", "labels": "label_set.csv"})
+        review_state = manager.activate(
+            {"mode": "review", "csv": "reviewer.csv", "labels": "label_set.csv", "reviewer_role": "A"}
+        )
         self.assertEqual("annotation", review_state["mode"])
+        self.assertEqual("A", review_state["reviewer_role"])
         consensus_state = manager.activate(
             {
                 "mode": "consensus",

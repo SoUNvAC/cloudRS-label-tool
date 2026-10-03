@@ -29,13 +29,6 @@ function selectedReviewer() {
   return document.querySelector('input[name="reviewer-person"]:checked').value;
 }
 
-function reviewerForFile(name) {
-  const normalized = name.toLowerCase().replace(/[\s_-]/g, "");
-  if (normalized.startsWith("reviewera")) return "a";
-  if (normalized.startsWith("reviewerb")) return "b";
-  return "";
-}
-
 function setStatus(message, kind = "") {
   elements.status.textContent = message;
   elements.status.className = "save-status " + kind;
@@ -92,11 +85,17 @@ function renderCatalog(catalog) {
   const consensus = catalog.csv_files.filter((entry) => entry.kind === "consensus_output");
   const other = catalog.csv_files.filter((entry) => entry.kind === "other");
   const single = catalog.csv_files.filter((entry) => entry.kind === "single_file_merge");
+  const reviewerCandidates = [
+    ...reviewers,
+    ...other.map((entry) => ({ ...entry, displayName: entry.name + "（其他 CSV）" })),
+  ];
   updateReviewCsv();
-  const aReviewers = reviewers.filter((entry) => /reviewer[_-]?a/i.test(entry.name));
-  const bReviewers = reviewers.filter((entry) => /reviewer[_-]?b/i.test(entry.name));
-  setOptions(elements.reviewerACsv, aReviewers.length ? aReviewers : reviewers, reviewers[0] && reviewers[0].name);
-  setOptions(elements.reviewerBCsv, bReviewers.length ? bReviewers : reviewers, reviewers[1] && reviewers[1].name);
+  setOptions(elements.reviewerACsv, reviewerCandidates);
+  setOptions(
+    elements.reviewerBCsv,
+    reviewerCandidates,
+    reviewerCandidates.find((entry) => entry.name !== elements.reviewerACsv.value)?.name || ""
+  );
   setOptions(elements.consensusCsv, [
     ...consensus,
     ...other.map((entry) => ({ ...entry, displayName: entry.name + "（其他 CSV）" })),
@@ -114,7 +113,7 @@ function updateReviewCsv() {
   const person = selectedReviewer();
   const selectedBefore = elements.reviewCsv.value;
   const matchingFiles = [
-    ...reviewers.filter((entry) => reviewerForFile(entry.name) === person),
+    ...reviewers,
     ...entries.filter((entry) => entry.kind === "other").map((entry) => ({
       ...entry,
       displayName: entry.name + "（其他 CSV）",
@@ -169,7 +168,10 @@ async function refreshLabelPreview() {
 async function openWorkspace() {
   const mode = selectedMode();
   const payload = { mode, labels: elements.labelsCsv.value };
-  if (mode === "review") payload.csv = elements.reviewCsv.value;
+  if (mode === "review") {
+    payload.csv = elements.reviewCsv.value;
+    payload.reviewer_role = selectedReviewer().toUpperCase();
+  }
   if (mode === "consensus") {
     payload.reviewer_a = elements.reviewerACsv.value;
     payload.reviewer_b = elements.reviewerBCsv.value;

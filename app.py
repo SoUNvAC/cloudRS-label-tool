@@ -82,6 +82,7 @@ class AnnotationStore:
         label_column: str = "label_set",
         notes_column: str = "notes",
         mode: str = "annotation",
+        reviewer_role: str = "",
     ) -> None:
         self.data_dir = data_dir.resolve()
         self.csv_path = self._safe_local_file(csv_name, suffix=".csv")
@@ -89,6 +90,7 @@ class AnnotationStore:
         self.label_column = label_column
         self.notes_column = notes_column
         self.mode = mode
+        self.reviewer_role = reviewer_role
         self.panels_dir = (self.data_dir / "panels").resolve()
         self.backup_dir = self.data_dir / ".annotation_history"
         self.audit_path = self.backup_dir / "audit.jsonl"
@@ -210,7 +212,9 @@ class AnnotationStore:
     def state(self) -> dict[str, Any]:
         _, rows = self._read_csv(self.csv_path)
         normalized_name = "".join(character for character in self.csv_path.stem.lower() if character.isalnum())
-        reviewer_role = "A" if normalized_name.startswith("reviewera") else "B" if normalized_name.startswith("reviewerb") else ""
+        reviewer_role = self.reviewer_role or (
+            "A" if normalized_name.startswith("reviewera") else "B" if normalized_name.startswith("reviewerb") else ""
+        )
         return {
             "mode": self.mode,
             "workspace_mode": "review",
@@ -713,7 +717,15 @@ class WorkspaceManager:
         labels = payload.get("labels", self.default_labels)
         with self._lock:
             if mode == "review":
-                store: AnnotationStore = AnnotationStore(self.data_dir, payload.get("csv"), labels)
+                reviewer_role = payload.get("reviewer_role", "")
+                if reviewer_role not in {"", "A", "B"}:
+                    raise UserFacingError("独立评审人只能选择 A 或 B")
+                store: AnnotationStore = AnnotationStore(
+                    self.data_dir,
+                    payload.get("csv"),
+                    labels,
+                    reviewer_role=reviewer_role,
+                )
             elif mode == "consensus":
                 store = MergeStore(
                     self.data_dir,
