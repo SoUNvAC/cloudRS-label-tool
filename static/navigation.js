@@ -90,13 +90,17 @@ function renderCatalog(catalog) {
   elements.phaseSummary.textContent = String(catalog.csv_files.length) + " 个 CSV · " + String(catalog.panel_count) + " 张 PNG（panels/）";
   const reviewers = catalog.csv_files.filter((entry) => entry.kind === "reviewer");
   const consensus = catalog.csv_files.filter((entry) => entry.kind === "consensus_output");
+  const other = catalog.csv_files.filter((entry) => entry.kind === "other");
   const single = catalog.csv_files.filter((entry) => entry.kind === "single_file_merge");
   updateReviewCsv();
   const aReviewers = reviewers.filter((entry) => /reviewer[_-]?a/i.test(entry.name));
   const bReviewers = reviewers.filter((entry) => /reviewer[_-]?b/i.test(entry.name));
   setOptions(elements.reviewerACsv, aReviewers.length ? aReviewers : reviewers, reviewers[0] && reviewers[0].name);
   setOptions(elements.reviewerBCsv, bReviewers.length ? bReviewers : reviewers, reviewers[1] && reviewers[1].name);
-  setOptions(elements.consensusCsv, consensus);
+  setOptions(elements.consensusCsv, [
+    ...consensus,
+    ...other.map((entry) => ({ ...entry, displayName: entry.name + "（其他 CSV）" })),
+  ]);
   setOptions(elements.singleConsensusCsv, single);
   setOptions(elements.labelsCsv, catalog.label_files.map((name) => ({ name })), catalog.default_labels);
   renderInventory(catalog.csv_files);

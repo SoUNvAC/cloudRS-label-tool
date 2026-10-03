@@ -103,7 +103,7 @@ class AnnotationStoreTests(unittest.TestCase):
         )
         catalog = WorkspaceManager(self.root, "label_set.csv").navigation()
         kinds = {entry["name"]: entry["kind"] for entry in catalog["csv_files"]}
-        self.assertEqual("consensus_output", kinds["calibration_consensus.csv"])
+        self.assertEqual("other", kinds["calibration_consensus.csv"])
         store = MergeStore(
             self.root,
             "reviewer_A_calibration.csv",

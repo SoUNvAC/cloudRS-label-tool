@@ -29,7 +29,6 @@ from urllib.parse import parse_qs, unquote, urlparse
 REVIEWER_COLUMNS = ("tile_id", "label_set", "notes")
 CONSENSUS_COLUMNS = ("tile_id", "agreed_label_set", "rule_or_counterexample")
 CONSENSUS_LABEL_COLUMNS = ("agreed_label_set", "consensus_label_set")
-CONSENSUS_BASE_COLUMNS = ("tile_id", "rule_or_counterexample")
 SINGLE_FILE_MERGE_COLUMNS = (
     "tile_id",
     "reviewer_A_label_set",
@@ -667,9 +666,7 @@ class WorkspaceManager:
                 kind = "label_config"
             elif set(SINGLE_FILE_MERGE_COLUMNS).issubset(fields):
                 kind = "single_file_merge"
-            elif set(CONSENSUS_BASE_COLUMNS).issubset(fields) and any(
-                column in fields for column in CONSENSUS_LABEL_COLUMNS
-            ):
+            elif set(CONSENSUS_COLUMNS).issubset(fields):
                 kind = "consensus_output"
             elif set(REVIEWER_COLUMNS).issubset(fields):
                 kind = "reviewer"
