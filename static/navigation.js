@@ -105,11 +105,20 @@ function renderCatalog(catalog) {
 }
 
 function updateReviewCsv() {
-  const reviewers = (navState.catalog && navState.catalog.csv_files || []).filter((entry) => entry.kind === "reviewer");
+  const entries = (navState.catalog && navState.catalog.csv_files || []);
+  const reviewers = entries.filter((entry) => entry.kind === "reviewer");
   const person = selectedReviewer();
   const selectedBefore = elements.reviewCsv.value;
-  const matchingFiles = reviewers.filter((entry) => reviewerForFile(entry.name) === person);
+  const matchingFiles = person === "manual"
+    ? entries.filter((entry) => entry.kind === "other")
+    : reviewers.filter((entry) => reviewerForFile(entry.name) === person);
   setOptions(elements.reviewCsv, matchingFiles, selectedBefore);
+  if (person === "manual") {
+    elements.reviewTarget.textContent = elements.reviewCsv.value
+      ? "当前将编辑：手动选择 · " + elements.reviewCsv.value + "（其他 CSV；进入前会校验可标注列）"
+      : "未找到可手动选择的其他 CSV";
+    return;
+  }
   const role = person.toUpperCase();
   elements.reviewTarget.textContent = elements.reviewCsv.value
     ? "当前将编辑：评审人 " + role + " · " + elements.reviewCsv.value
